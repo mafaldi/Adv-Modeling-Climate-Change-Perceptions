@@ -2,7 +2,7 @@
 
 This project was created under the course of Advanced Modeling as part of the Master in Computational Science at UC3M. 
 
-> To look at the results, go directly to `Climate Change Perceptions.html`. If you are interested in running the code, download `Climate Change Perceptions.
+> To look at the results, go directly to `Climate Change Perceptions.html`. If you are interested in running the code, download `Climate Change Perceptions.Rmd` and download the files .
 
 Climate change remains one of the most pressing challenges of our time, demanding not only systemic policy reforms and technological solutions, but also widespread public engagement. As European society tries transitions to a low-carbon economy, understanding public perceptions and behaviours regarding climate change is essential. This project uses data from the European Social Survey (ESS) Round 8 (2016), which provides a rich cross-national dataset capturing individuals’ attitudes, beliefs, and behaviours related to climate change and energy use across Europe.
 
