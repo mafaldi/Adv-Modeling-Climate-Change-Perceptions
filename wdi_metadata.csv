@@ -1,0 +1,44 @@
+Time,Time Code,Country Name,Country Code,GDP per capita (constant 2015 US$) [NY.GDP.PCAP.KD],Gini index [SI.POV.GINI]
+2016,YR2016,Austria,AUT,44362.6702918145,30.8
+2016,YR2016,Belgium,BEL,41172.8862464509,27.6
+2016,YR2016,Switzerland,CHE,84611.0998479606,33
+2016,YR2016,Czechia,CZE,18359.0978117405,25.4
+2016,YR2016,Germany,DEU,42528.0637107828,31.4
+2016,YR2016,Estonia,EST,18264.9867328144,31.2
+2016,YR2016,Spain,ESP,26704.3435828513,35.8
+2016,YR2016,Finland,FIN,43529.676196739,27.1
+2016,YR2016,France,FRA,36920.5342871045,31.9
+2016,YR2016,Hungary,HUN,13035.3528590909,30.3
+2016,YR2016,Israel,ISR,36969.741657336,39
+2016,YR2016,Italy,ITA,30815.0869082281,35.2
+2016,YR2016,Netherlands,NLD,46655.0363545163,28.2
+2016,YR2016,Poland,POL,13026.1858988718,31.2
+2016,YR2016,Russian Federation,RUS,9269.3193359375,36.7
+2016,YR2016,Slovenia,SVN,21309.7120251737,24.8
+2016,YR2016,United Kingdom,GBR,45482.4668618551,33.1
+2016,YR2016,Ireland,IRL,64367.4069016353,32.8
+2016,YR2016,Iceland,ISL,55513.6423015865,27.2
+2016,YR2016,Lithuania,LTU,14870.1049461514,38.4
+2016,YR2016,Norway,NOR,75017.4944737055,28.5
+2016,YR2016,Portugal,PRT,19662.823085477,35.2
+2016,YR2016,Sweden,SWE,51746.6969632478,29.6
+,,,,,
+,,,,,
+,,,,,
+Data from database: World Development Indicators,,,,,
+Last Updated: 01/28/2025,,,,,
+Code,License Type,Indicator Name,Short definition,Long definition,Source,Topic,Unit of measure,Periodicity,Base Period,Aggregation method,Statistical concept and methodology,Development relevance,Limitations and exceptions,General comments,Related source links,License URL
+NY.GDP.PCAP.KD,CC BY-4.0,GDP per capita (constant 2015 US$),,GDP per capita is gross domestic product divided by midyear population. GDP is the sum of gross value added by all resident producers in the economy plus any product taxes and minus any subsidies not included in the value of the products. It is calculated without making deductions for depreciation of fabricated assets or for depletion and degradation of natural resources. Data are in constant 2015 U.S. dollars.,"World Bank national accounts data, and OECD National Accounts data files.",Economic Policy & Debt: National accounts: US$ at constant 2015 prices: Aggregate indicators,,Annual,2015,Weighted average,"For more information, see the metadata for constant U.S. dollar GDP (NY.GDP.MKTP.KD) and total population (SP.POP.TOTL).",,,,,https://datacatalog.worldbank.org/public-licenses#cc-by
+SI.POV.GINI,CC BY-4.0,Gini index,"The Gini index measures the extent to which the distribution of income or consumption among individuals or households within an economy deviates from a perfectly equal distribution. A Gini index of 0 represents perfect equality, while an index of 100 implies perfect inequality.","Gini index measures the extent to which the distribution of income (or, in some cases, consumption expenditure) among individuals or households within an economy deviates from a perfectly equal distribution. A Lorenz curve plots the cumulative percentages of total income received against the cumulative number of recipients, starting with the poorest individual or household. The Gini index measures the area between the Lorenz curve and a hypothetical line of absolute equality, expressed as a percentage of the maximum area under the line. Thus a Gini index of 0 represents perfect equality, while an index of 100 implies perfect inequality.","World Bank, Poverty and Inequality Platform. Data are based on primary household survey data obtained from government statistical agencies and World Bank country departments. Data for high-income economies are mostly from the Luxembourg Income Study database. For more information and methodology, please see http://pip.worldbank.org.",Poverty: Income distribution,%,Annual,,,"The Gini index measures the area between the Lorenz curve and a hypothetical line of absolute equality, expressed as a percentage of the maximum area under the line. A Lorenz curve plots the cumulative percentages of total income received against the cumulative number of recipients, starting with the poorest individual. Thus a Gini index of 0 represents perfect equality, while an index of 100 implies perfect inequality.
+
+The Gini index provides a convenient summary measure of the degree of inequality. Data on the distribution of income or consumption come from nationally representative household surveys. Where the original data from the household survey were available, they have been used to calculate the income or consumption shares by quintile. Otherwise, shares have been estimated from the best available grouped data.
+
+The distribution data have been adjusted for household size, providing a more consistent measure of per capita income or consumption. 
+
+The year reflects the year in which the underlying household survey data were collected or, when the data collection period bridged two calendar years, the year data collection started.",The World Bank Group's goal of promoting shared prosperity has been defined as fostering income growth of the bottom 40 per cent of the welfare distribution in every country. Gini coefficients are important background information for shared prosperity.,"Gini coefficients are not unique. It is possible for two different Lorenz curves to give rise to the same Gini coefficient. Furthermore it is possible for the Gini coefficient of a developing country to rise (due to increasing inequality of income) while the number of people in absolute poverty decreases. This is because the Gini coefficient measures relative, not absolute, wealth.
+
+Another limitation of the Gini coefficient is that it is not additive across groups, i.e. the total Gini of a society is not equal to the sum of the Gini's for its sub-groups. Thus, country-level Gini coefficients cannot be aggregated into regional or global Gini's, although a Gini coefficient can be computed for the aggregate.
+
+Because the underlying household surveys differ in methods and types of welfare measures collected, data are not strictly comparable across countries or even across years within a country. Two sources of non-comparability should be noted for distributions of income in particular. First, the surveys can differ in many respects, including whether they use income or consumption expenditure as the living standard indicator. The distribution of income is typically more unequal than the distribution of consumption. In addition, the definitions of income used differ more often among surveys. Consumption is usually a much better welfare indicator, particularly in developing countries. Second, households differ in size (number of members) and in the extent of income sharing among members. And individuals differ in age and consumption needs. Differences among countries in these respects may bias comparisons of distribution. 
+
+World Bank staff have made an effort to ensure that the data are as comparable as possible. Wherever possible, consumption has been used rather than income. Income distribution and Gini indexes for high-income economies are calculated directly from the Luxembourg Income Study database, using an estimation method consistent with that applied for developing countries.",The World Bank’s internationally comparable poverty monitoring database now draws on income or detailed consumption data from more than 2000 household surveys across 169 countries. See the Poverty and Inequality Platform (PIP) for details (www.pip.worldbank.org).,"World Bank, Poverty and Inequality Platform: https://pip.worldbank.org/",https://datacatalog.worldbank.org/public-licenses#cc-by
