@@ -2,7 +2,14 @@
 
 This project was created under the course of Advanced Modeling as part of the Master in Computational Science at UC3M. 
 
-> To look at the results, go directly to `Climate Change Perceptions.html`. If you are interested in running the code, download `Climate Change Perceptions.Rmd` and download the files .
+
+## Instructions 
+
+> To look at the results, go directly to `Climate Change Perceptions.html`. If you are interested in running the code, download the script `Climate Change Perceptions.Rmd` and the data it is based on: the zip folder `ESS8e02_3.zip`, in which inside is the `ESS8e02_3.csv` file, as well as `wdi_data.csv`.
+> -  Additionally, download `data_mice.rds` and `xgb_tune_broad.rds` to automatically run through the document, as the chunks _{r mice generation excluded, eval=F}_ and _{r RP ML gb train broad, eval=F}_ are set to `eval=F`. This is because of the long computing times for the MICE imputation process and the ML Gradient Boosting training phase. If you want to try them out for yourself, feel free to set those chunks on `TRUE` and have fun waiting... :)
+
+
+## Description 
 
 Climate change remains one of the most pressing challenges of our time, demanding not only systemic policy reforms and technological solutions, but also widespread public engagement. As European society tries transitions to a low-carbon economy, understanding public perceptions and behaviours regarding climate change is essential. This project uses data from the European Social Survey (ESS) Round 8 (2016), which provides a rich cross-national dataset capturing individuals’ attitudes, beliefs, and behaviours related to climate change and energy use across Europe.
 
