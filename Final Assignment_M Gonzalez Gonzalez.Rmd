@@ -1,0 +1,2429 @@
+---
+title: "Final Project Advanced Modeling"
+author: "Mafalda González González"
+date: "2025-06-18"
+output:
+  html_document
+editor_options: 
+  markdown: 
+    wrap: 60
+---
+
+```{r global_options, include=T, echo = F}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, eval=T)
+options(scipen = 999)
+```
+
+# Supervised learning: Climate Change Perceptions 
+
+Climate change remains one of the most pressing challenges of our time, demanding not only systemic policy reforms and technological solutions, but also widespread public engagement. As European society tries transitions to a low-carbon economy, understanding public perceptions and behaviours regarding climate change is essential. This project uses data from the European Social Survey (ESS) Round 8 (2016), which provides a rich cross-national dataset capturing individuals’ attitudes, beliefs, and behaviours related to climate change and energy use across Europe.
+
+The aim of this project is to apply supervised machine learning techniques of classification and regression to investigate key public attitudes. 
+
+- The classification task focuses on predicting whether an individual believes climate change is primarily caused by human activity. 
+- The regression task explores what predicts an individual's willingness to reduce their personal energy consumption to help mitigate climate change, measured on a 1–10 scale.
+These predictive models aim to uncover the most influential individual and attitudinal factors behind climate-related perceptions and behaviours. Such insights are essential for policymakers and stakeholders seeking to promote public support for environmental initiatives and behavioural change across different European contexts.
+
+We use a subset of the ESS Round 8 dataset (DOI: 10.21338/ess8e02_3), which includes over 30,000 respondents and covers a wide range of demographic, political, and environmental variables.
+
+# Pre-processing data
+
+Before starting the actual analysis, we load our libraries,
+download and clean our datasets and take a look at their
+compositions.
+
+## Library
+
+```{r library}
+# delete everything
+rm(list=ls()) 
+
+library(tidyverse)
+library(dplyr)
+library(readr) # read csv
+library(tibble)
+
+library(gt) # tables 
+library(patchwork) # plots position 
+
+# pre-processing
+library(countries) # matching country names 
+library(mice) # NAs
+
+# descriptive
+library(DataExplorer)
+library(skimr) 
+
+# models 
+library(caret)
+library(ggeffects) # comparing predictors for models 
+library(pROC) # roc curve
+library(MASS) # lda
+library(rpart) # decision trees
+library(rpart.plot)
+library(MLmetrics) # random forest
+library(pdp) # partial dependence plots
+
+# regression models 
+library(olsrr) # subset selection of regression model
+library(elasticnet) # ridge, lasso, elastic
+```
+
+## Input gathering
+
+### ESS8
+
+For data on climate change perceptions, we use survey data
+structured at the individual level from the [European Social
+Survey (ESS) Round 8
+(2016)](https://ess.sikt.no/en/study/f8e11f55-0c14-4ab3-abde-96d3f14d3c76),
+specifically the module "Climate Change and Energy", which
+provides insights into public attitudes, beliefs and
+concerns towards climate change, energy security, personal
+and group norms, responsibility, and policy preferences
+across 23 European countries. We focus on variables related
+to:
+
+-   perceived causes and consequences of climate change,
+-   individual and governmental responsibility,
+-   willingness to act or pay, and
+-   trust in renewable vs non-renewable energy sources.
+
+The ESS8 dataset is well-suited for analysing attitudes
+toward climate change because of its cross-national scope,
+high methodological rigour, and detailed climate and energy
+module. It also allows us to link individual attitudes to
+sociodemographic and political variables, enabling
+multivariate analysis.
+
+```{r ess data}
+ess <- read_csv("ESS8e02_3.csv")
+```
+
+### World Bank
+
+To enrich our analysis with contextual economic information,
+we integrate country-level data from the [World Bank’s
+DataBank](https://databank.worldbank.org/source/world-development-indicators/Type/TABLE/preview/on)
+on World Development Indicators (WDI). These variables were
+retrieved by building a customised dataset using the World
+Bank DataBank export tool. Specifically, we use:
+
+-   GDP per capita (as a proxy for national wealth), and
+-   Gini index (as a measure of income inequality).
+
+The inclusion of these variables will allow for a deeper
+exploration of how economic factors can influence
+individuals' attitudes towards climate change and their
+willingness to support environmental policies. This helps us
+assess whether support for environmental policies is shaped
+not only by individual attitudes, but also by national
+economic context.
+
+```{r wdi data}
+wdi <- read_csv("wdi_data.csv")
+```
+
+## Cleaning and joining
+
+Below we take a look at the variables we have selected and
+rename them, clean the datasets and prepare them for
+joining.
+
+### Selected variables
+
+In the **ESS8 climate-related module** we select the
+following general and climate related variables:
+
+```{r ess climate table, echo=F}
+
+tribble(
+  ~Renamed_var, ~Original_var, ~Meaning,
+  "country", "cntry", "Country name in full",
+  "female", "gndr", "Gender with female = 1",
+  "age", "agea", "Age",
+  "energy_eff_appliance", "eneffap", "How likely to buy most energy-efficient home appliance",
+  "confidence_less_energy", "cflsenr", "How confident you could use less energy than now",
+  "worry_powercuts", "wrpwrct", "How worried are you there may be power cuts in country",
+  "worry_expense_energy", "wrenexp", "How worried are you that energy may be too expensive for many people in country",
+  "worry_depend_fossil", "wrdpfos", "How worried are you about your country being too dependent on fossil fuels like oil, gas and coal",
+  "worry_energy_weather", "wrntdis", "How worried are you that energy supplies could be interrupted by natural disasters or extreme weather",
+  "worry_cc", "wrclmch", "How worried are you about climate change",
+  "cc_real", "clmchng", "Do you think the world's climate is changing",
+  "cc_causes", "ccnthum", "Do you think climate change is caused by natural processes, human activity, or both",
+  "cc_impact", "ccgdbd", "How good or bad do you think the impact of climate change will be on people across the world (0 = extremely bad, 10 = extremely good)",
+  "cc_personal_resp", "ccrdprs", "To what extent do you feel a personal responsibility to try to reduce climate change",
+  "cc_red_personal", "ownrdcc", "How likely do you think it is that limiting your own energy use would help reduce climate change",
+  "cc_red_group", "lkredcc", "How likely do you think it is that large-scale reduction in energy use would reduce climate change",
+  "gov_action", "gvsrdcc", "How likely do you think governments in enough countries will take action to reduce climate change",
+  "taxes_fossil", "inctxff", "To what extent are you in favour or against increasing taxes on fossil fuels to reduce climate change",
+  "subsidise_renew_energy", "sbsrnen", "To what extent are you in favour or against using public money to subsidise renewable energy (e.g., wind and solar)"
+) %>% 
+  gt() %>% 
+  tab_header(title = "Selected Variables from the ESS8 Dataset") %>% 
+  tab_options(table.align = "center", table.font.size = "small")
+
+```
+
+We also have the variables elgcoal, elgngas, elgnuc, elgsun,
+elgwind and elghydr. We will work with these variables in
+the feature engineering process.
+
+Out of the **general ESS8 dataset** we also export these
+political and demographic variables:
+
+```{r ess general table, echo=F}
+
+tribble(
+  ~Renamed_var, ~Original_var, ~Meaning,
+  "voted", "vote", "Did you vote in the last national election in your country?",
+  "boycotted", "bctprd", "During the last 12 months, have you boycotted certain products?",
+  "ideology", "lrscale", "Political self-placement on a left (0) to right (10) scale",
+  "life_satisfaction", "stflife", "Overall life satisfaction (0 = extremely dissatisfied, 10 = extremely satisfied)",
+  "important_env", "impenv", "Believes it is important to care for nature and the environment",
+  "important_trad", "imptrad", "Values tradition and following customs handed down by religion or family",
+  "edu_years", "eduyrs", "Years of education completed"
+) %>% 
+  gt() %>% 
+  tab_header(title = "Political and Sociodemographic Variables from ESS8") %>% 
+  tab_options(table.align = "center", table.font.size = "small")
+```
+
+```{r ess recode}
+ess_recode <- ess %>% 
+  dplyr::select(
+    # general variables 
+    idno, cntry, gndr, agea,
+    
+    # climate change 
+    eneffap, cflsenr, elgcoal, elgngas, elghydr, elgnuc, elgsun, elgwind, elgbio, wrpwrct, wrenexp, wrdpfos, wrntdis, clmchng, ccnthum, ccrdprs, wrclmch, ccgdbd, lkredcc, gvsrdcc, ownrdcc, inctxff, sbsrnen, 
+    
+    # political variables 
+    psppsgva, vote, bctprd, lrscale, stflife, impenv, imptrad,
+    
+    # sociodemographics 
+    eduyrs
+  ) 
+
+# RENAMING: code book 
+# general variables 
+ess_recode <- ess_recode %>% 
+  mutate(
+    # country
+    country = country_name(cntry, to = "simple", verbose = TRUE, poor_matches = TRUE),
+    # gender
+    female = case_when(
+      gndr == 1 ~ 0, 
+      gndr == 2 ~ 1, # female
+      TRUE ~ NA), 
+    #age
+    age = if_else(agea == 999, NA_real_, agea)
+  )
+
+# climate change
+ess_recode <- ess_recode %>% 
+  mutate(
+    energy_eff_appliance = if_else(eneffap > 10, NA, eneffap), # eneffap - How likely to buy most energy efficient home appliance 
+    confidence_less_energy = if_else(cflsenr > 10, NA, cflsenr), # How confident you could use less energy than now 
+    worry_powercuts = if_else(wrpwrct > 5, NA, wrpwrct), # How worried are you there may be power cuts in country
+    worry_expense_energy = if_else(wrenexp > 5, NA, wrenexp),# How worries are you that the energy may be too expensive for many people in country 
+    worry_depend_fossil = if_else(wrdpfos > 5, NA, wrdpfos), # How worried are you about [country] being too dependent on using energy generated by fossil fuels such as oil, gas and coal?
+    worry_energy_weather = if_else(wrntdis > 5, NA, wrntdis), # How worried are you that energy supplies could be interrupted by natural disasters or extreme weather
+    cc_real = case_when(
+      clmchng == 1 ~ 4,
+      clmchng == 2 ~ 3,
+      clmchng == 3 ~ 2,
+      clmchng == 4 ~ 1,
+      TRUE ~ NA_real_), # Do you think the world's climate is changing
+    cc_causes = case_when(
+      ccnthum < 3 ~ "Natural",
+      ccnthum == 3 ~ "Both",
+      ccnthum == 4 | ccnthum == 5 ~ "Human",
+      ccnthum == 55 ~ "No CC",
+      TRUE ~ NA), # Do you think that climate change is caused by natural processes, human activity, or both
+    cc_personal_resp = if_else(ccrdprs > 10, NA, ccrdprs), # To what extent do you feel a personal responsibility to try to reduce climate change
+    worry_cc = if_else(wrclmch > 5, NA, wrclmch), #How worried are you about climate change
+    cc_impact = if_else(ccgdbd > 10, NA, ccgdbd), # How good or bad do you think the impact of climate change will be on people across the world? Please choose a number from 0 to 10, where 0 is extremely bad and 10 is extremely good
+    cc_red_group = if_else(lkredcc > 10, NA, lkredcc), # Now imagine that large numbers of people limited their energy use. How likely do you think it is that this would reduce climate change? 
+    gov_action = if_else(gvsrdcc > 10, NA, gvsrdcc), # how likely do you think it is that governments in enough countries will take action that reduces climate change?
+    cc_red_personal = if_else(ownrdcc > 10, NA, ownrdcc), # How likely do you think it is that limiting your own energy use would help reduce climate change? 
+    taxes_fossil = case_when(
+      inctxff == 5 ~ 1, # strongly against
+      inctxff == 4 ~ 2,
+      inctxff == 2 ~ 4,
+      inctxff == 1 ~ 5, # strongly in favour
+      TRUE ~ NA_real_), # To what extent are you in favour or against the following policies in [country] to reduce climate change? Increasing taxes on fossil fuels, such as oil, gas and coal
+    subsidise_renew_energy = case_when(
+      sbsrnen == 5 ~ 1, # strongly against
+      sbsrnen == 4 ~ 2,
+      sbsrnen == 2 ~ 4,
+      sbsrnen == 1 ~ 5, # strongly in favour
+      TRUE ~ NA_real_), # To what extent are you in favour or against the following policies in [country] to reduce climate change? Using public money to subsidise renewable energy such as wind and solar power. 
+  )
+
+# political variables 
+ess_recode <- ess_recode %>% 
+  mutate(
+    voted = case_when(
+      vote == 1 ~ 1, # YES voted
+      vote == 2 ~ 0, 
+      TRUE ~ NA_real_), # Did you vote in the last [country] national election in [month/year]?
+    boycotted = case_when(
+      bctprd == 1 ~ 1, # YES boycotted
+      bctprd == 2 ~ 0, 
+      TRUE ~ NA_real_), # During the last 12 months, have you done any of the following? Have youboycotted certain products?
+    ideology = if_else(lrscale > 10, NA, lrscale), # In politics people sometimes talk of 'left' and 'right'. Using this card, where would you place yourself on this scale, where 0 means the left and 10 means the right?
+    life_satisfaction = if_else(stflife > 10, NA, stflife), # All things considered, how satisfied are you with your life as a whole nowadays? Please answer using this card, where 0 means extremely dissatisfied and 10 means extremely satisfied.
+    important_env = if_else(impenv > 6, NA, impenv), 
+    important_env = case_when(
+      important_env < 3 ~ 3, # high identification
+      important_env == 3 | important_env == 4 ~ 2, # moderate identification 
+      important_env > 4 ~ 1), # low identification
+      # She/he strongly believes that people should care for nature. Looking after the environment is important to her/him.
+    important_trad = if_else(imptrad > 6, NA, imptrad), 
+    important_trad = case_when(
+      important_trad < 3 ~ 3, # high identification
+      important_trad == 3 | important_trad == 4 ~ 2, # moderate identification 
+      important_trad > 4 ~ 1), # low identification
+    # Tradition is important to her/him. She/he tries to follow the customs handed down by her/his religion or her/his family.
+  )
+
+# sociodemographics 
+ess_recode <- ess_recode %>% 
+  mutate(
+    edu_years = if_else(eduyrs > 76, NA, eduyrs) # About how many years of education have you completed
+  )
+
+ess_clean <- ess_recode %>% 
+  dplyr::select(
+    country, female, age, energy_eff_appliance, confidence_less_energy, worry_powercuts, worry_expense_energy, worry_depend_fossil, worry_energy_weather, cc_real, cc_causes, cc_personal_resp, worry_cc, cc_impact, cc_red_group, gov_action, cc_red_personal, taxes_fossil, subsidise_renew_energy, voted, boycotted, ideology, life_satisfaction, important_env, important_trad, edu_years, elgsun, elgwind, elghydr, elgcoal, elgngas, elgnuc
+  )
+
+```
+
+Out of the World Bank’s DataBank we export the GDP per
+capita and Gini index, as well as the country.
+
+```{r wdi table, echo=F}
+tribble(
+  ~Renamed_var, ~Original_var, ~Meaning,
+  "country", "Country Name", "Country",
+  "gdp_per_capita", "GDP per capita (constant 2015 US$) [NY.GDP.PCAP.KD]", "GDP per capita as a proxy for national wealth",
+  "gini", "Gini index [SI.POV.GINI]", "Gini index as a measure of income inequality"
+) %>% 
+  gt() %>% 
+  tab_header(title = "Economic Variables from World Bank Data") %>% 
+  tab_options(table.align = "center", table.font.size = "small")
+```
+
+```{r wdi recode}
+wdi_recode <- wdi %>% 
+  dplyr::select(
+    `Country Name`, `GDP per capita (constant 2015 US$) [NY.GDP.PCAP.KD]`, `Gini index [SI.POV.GINI]`
+  ) %>% 
+  rename(
+    country = `Country Name`, 
+    gdp_per_capita = `GDP per capita (constant 2015 US$) [NY.GDP.PCAP.KD]`, 
+    gini = `Gini index [SI.POV.GINI]`
+  ) %>% 
+  drop_na(country) %>% 
+  mutate(
+    country = country_name(country, to = "simple", verbose = TRUE, poor_matches = TRUE)
+  )
+```
+
+Finally, we make sure the variables have been correctly
+saved.
+
+```{r data sets check}
+str(ess_clean)
+unique(ess_clean$country)
+
+str(wdi_recode)
+unique(wdi_recode$country)
+```
+
+### Joining datasets
+
+Now, having standardized the names in both datasets with the
+function `country_name` from the package `countries`, we can
+simply join the datasets by their countries. In both
+datasets all countries were matched perfectly to the
+official country names, and both datasets have 23 countries
+present. This is because the WorldBank dataset was exported
+only selecting the countries of the ESS8. The intersect of
+the `country` variable of the two datasets confirms this. We
+can join without a problem.
+
+```{r datasets join}
+intersect(unique(ess_clean$country), unique(wdi_recode$country))
+
+data <- ess_clean %>% 
+  left_join(wdi_recode, by = "country")
+```
+
+### Treating NAs
+
+With both datasets cleaned and successfully merged, we now
+turn to handling missing values in preparation for the
+descriptive and predictive analyses.
+
+```{r NAs}
+colSums(is.na(data)) / nrow(data) * 100
+
+```
+
+Most variables in the dataset show relatively low
+proportions of missing values, typically below 10%. However,
+there are some notable exceptions. For instance,
+`taxes_fossil` has approximately 26.36% missing values, and
+`cc_red_personal` and `ideology` have around 15.51% and
+13.08% respectively. Given their relevance for the analysis,
+especially in understanding attitudes toward climate policy
+and political orientation, we choose to retain these
+variables despite their higher rates of missingness.
+
+To assess which imputations
+method less significantly alters the data structure, we
+compare the distribution of the variable `cc_impact` under
+three scenarios: the original data (with missing values),
+listwise deletion, and multiple imputation using the `mice`
+package. The variables `cc_red_personal` and `cc_causes` are
+excluded from the imputation model, as they will later be
+used as target variables in our predictive analyses. We
+choose `cc_impact` for this comparison because it is a
+representative scale-based variable, has a moderate level of
+missingness (\~7%), and is conceptually central to our topic
+on climate change perceptions.
+
+In order for the rendering process to work more smoothly, I have saved the mice imputation results and load them as a .rds in the chunk below. 
+
+```{r mice generation}
+# mice multiple imputation
+mice_data <- data
+
+vars_excluded <- mice_data %>% 
+  dplyr::select(cc_red_personal, cc_causes)
+
+mice_data_impute <- mice_data %>% 
+  dplyr::select(-cc_red_personal, -cc_causes)
+```
+
+
+```{r mice generation excluded, eval=F}
+pre <- mice(mice_data_impute, m = 5, seed = 123) #defaults
+meth <- pre$method
+imputed_data <- mice(mice_data_impute, method = meth, m = 5, seed = 123)
+data_mice <- complete(imputed_data, action = 5)
+
+saveRDS(data_mice, "data_mice.rds")
+```
+
+
+```{r mice comparison}
+data_mice <- readRDS("data_mice.rds")
+
+# Comparison
+df_original <- data.frame(method = "Original (with NAs)", value = data$cc_impact)
+df_listwise <- data.frame(method = "Listwise Deletion", value = na.omit(data$cc_impact))
+df_imputed <- data.frame(method = "Multiple Imputation", value = data_mice$cc_impact)
+
+impact_long <- bind_rows(df_listwise, df_original, df_imputed)
+
+# plot 
+ggplot(impact_long, aes(x = value, fill = method)) +
+  geom_histogram(binwidth = 1, color = "#808080") +
+  facet_wrap(~method, scales = "free_y") +
+  scale_fill_manual(values = c("cornsilk", "chocolate2", "aquamarine3")) +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+The visual comparison of imputation methods suggested that
+missing values in individual variables, such as `cc_impact`,
+did not introduce substantial bias in the shape or
+distribution of responses. Based on this, we initially
+considered using listwise deletion as a simple and
+transparent strategy, especially given our dataset's large
+sample size (over 44,000 observations), which would leave
+over 21,000 complete cases even after deletion.
+
+```{r listwise deletion}
+no_na <- data %>% 
+  drop_na() 
+
+no_na %>% 
+  dim()
+```
+
+However, a closer inspection of missingness by country
+reveales that listwise deletion disproportionately affects
+some countries. While a few countries (e.g., Norway, Sweden)
+lose fewer than 40% of their observations, others (e.g.,
+Lithuania, the Russian Federation) lose more than 70%. This
+uneven loss raises concerns about cross-national
+representativeness, as it may bias results toward countries
+with lower item nonresponse.
+
+```{r imputation comparison}
+# before deletion
+before_counts <- data %>%
+  count(country, name = "n_before")
+
+# after deletion
+after_counts <- no_na %>%
+  count(country, name = "n_after")
+
+# comparison
+country_loss <- full_join(before_counts, after_counts, by = "country") %>%
+  mutate(
+    loss = n_before - n_after,
+    pct_loss = round(100 * loss / n_before, 1)
+  ) %>%
+  arrange(desc(pct_loss))
+
+country_loss
+
+ggplot(country_loss, aes(x = reorder(country, -pct_loss), y = pct_loss)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Percentage of observations lost per country after listwise deletion",
+    x = "Country", y = "% of rows dropped"
+  ) +
+  theme_minimal() +
+  coord_flip()
+
+```
+
+Given these findings, we opt to use multiple imputation via
+the mice package, which minimises the risk of distorting
+country-level balance or underrepresenting specific
+populations.
+
+```{r storing MICE}
+all.equal(rownames(data_mice), rownames(vars_excluded))  # should be TRUE
+
+data_mice <- bind_cols(data_mice, vars_excluded)
+
+data_clean <- data_mice
+dim(data_clean)
+```
+
+## Feature Engineering
+
+To improve model interpretability and capture meaningful
+patterns, we apply some feature engineering. These include
+average preferences for renewable and non-renewable energy
+sources, an environmental concern index aggregating key
+climate-related worries, and an interaction term combining
+personal responsibility with perceived government action. We
+also define income groups based on GDP per capita.
+
+```{r FE table, echo=F}
+tribble(
+  ~Adjusted_var, ~Original_vars, ~Meaning,
+  "preference_renewable", "elgsun, elgwind, elghydr", "Average support for renewable energy sources (solar, wind, hydro)",
+  "preference_non_renewable", "elgcoal, elgngas, elgnuc", "Average support for non-renewable energy sources (coal, gas, nuclear)",
+  "income_group", "gdp_per_capita", "Categorical income group based on national GDP per capita (Low to Very High)",
+  "balance_gov_personal", "cc_personal_resp * gov_action", "Interaction between personal and government responsibility to reduce climate change",
+  "env_concern_index", "worry_powercuts, worry_expense_energy, worry_depend_fossil, worry_energy_weather", "Composite index of environmental concern"
+) %>%
+  gt() %>%
+  tab_header(title = "Constructed Variables for Feature Engineering") %>%
+  tab_options(table.align = "center", table.font.size = "small")
+
+
+```
+
+```{r FE}
+data_eng <- data_clean %>% 
+  mutate(
+    
+    # reverse scale for energy generation preference 
+    across(c(elgsun, elgwind, elghydr, elgcoal, elgngas, elgnuc),
+           ~ case_when(
+             . == 1 ~ 5,  # A very large amount
+             . == 2 ~ 4,  # A large amount
+             . == 3 ~ 3,  # A medium amount
+             . == 4 ~ 2,  # A small amount
+             . == 5 ~ 1,  # None at all
+             TRUE ~ NA_real_
+           )),
+    
+    # preferences 
+    preference_renewable = rowMeans(dplyr::select(., elgsun, elgwind, elghydr), na.rm = TRUE),
+    preference_non_renewable = rowMeans(dplyr::select(., elgcoal, elgngas, elgnuc), na.rm = TRUE),
+    
+    # income group 
+    income_group = cut(data_clean$gdp_per_capita,
+                        breaks = c(0, 5000, 15000, 30000, Inf),
+                        labels = c("Low", "Middle", "High", "Very High"),
+                        right = FALSE), 
+    
+    # personal responsibility * government action
+    balance_gov_personal = cc_personal_resp * gov_action,
+    
+    # environmental concern index
+    env_concern_index = rowMeans(.[, c("worry_powercuts", "worry_expense_energy", "worry_depend_fossil", "worry_energy_weather")], na.rm = TRUE)
+    
+  )
+
+```
+
+Finally, we are also going to convert our categorical variables into factors. 
+
+```{r FE factors}
+data_eng <- data_eng %>%
+  mutate(
+    country = as.factor(country),
+    
+    important_env = as.factor(important_env), # 1,2,3
+    important_trad = as.factor(important_trad), # 1,2,3
+    
+    income_group = as.factor(income_group), # Low, Middle, High, Very High
+    
+    female = as.factor(female),
+    cc_causes = as.factor(cc_causes)
+  )
+
+data <- data_eng
+```
+
+
+## Reducing dataset dimension
+
+Due to the size of the data at this point, I believe that it
+is reasonable to reduce the dataset in order to be able to
+work later with some of the machine learning methods, which
+take more time the larger the dataset is. Hence, we reduce
+the dataset from over 44,000 observations to approximately
+5,000 while maintaining representativeness. We employe a
+stratified sampling strategy based on our two target
+variables, by using `cc_causes` as a categorical
+stratification variable, and we discretised the continuous
+variable `cc_red_personal` into five quantile-based bins.
+This approach ensures that the subsample preserves the joint
+distribution of both targets, which is essential for
+developing classification and regression models without
+introducing sampling bias.
+
+```{r data reduction}
+data <- data %>%
+  mutate(
+    subsidy_bin = ntile(cc_red_personal, 5),  # create 5 quantile bins
+    causes_factor = as.factor(cc_causes)
+  )
+
+set.seed(123)
+data_small <- data %>%
+  group_by(causes_factor, subsidy_bin) %>%
+  sample_frac(size = 5000 / nrow(data)) %>%
+  ungroup() %>% 
+  dplyr::select(-c(subsidy_bin, causes_factor)) 
+
+```
+
+To validate the representativeness of the subsample, we can
+compare the distributions of the original and reduced
+datasets.
+
+```{r data reduction comparison}
+# cc_causes
+bind_rows(
+  data %>% mutate(source = "Full") %>% dplyr::select(cc_causes, source),
+  data_small %>% mutate(source = "Sampled") %>% dplyr::select(cc_causes, source)
+) %>%
+  ggplot(aes(x = cc_causes, fill = source)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Distribution of cc_causes (Target)")
+
+# cc_red_personal
+bind_rows(
+  data %>% mutate(source = "Full") %>% dplyr::select(cc_red_personal, source),
+  data_small %>% mutate(source = "Sampled") %>% dplyr::select(cc_red_personal, source)
+) %>%
+  ggplot(aes(x = cc_red_personal, fill = source)) +
+  geom_bar(alpha = 0.5) +
+  labs(title = "Distribution of cc_red_personal (Target)")
+```
+
+The bar plot for `cc_causes` and the histogram for `cc_red_personal` indicate that the stratified sample successfully mirrors the distributional shape of the full dataset. While the sample counts are smaller, the proportions seem to match, suggesting that the 5,000-observation subsample retains the diversity and balance of the original data. This makes it suitable for initial modelling and testing without sacrificing representativeness.
+
+# Descriptive analysis
+
+Having cleaned, merged, engineered and reduced our data set,
+we can proceed to do an exploration of our cleaned dataset
+to understand the relationships between the variables
+better.
+
+We first examine the structure of our dataset:
+
+```{r DA basic}
+data <- data_small 
+
+dim(data)
+glimpse(data) 
+plot_intro(data)
+
+```
+
+Our dataset contains 5000 observations[^1] and 34 variables.
+It primarily consists of numerical variables representing
+socio-demographics, environmental attitudes, and political
+behaviours. All missing values were imputed except for the
+target variables, which were preserved as observed. This
+ensures robust and complete input data for modelling without
+distorting outcomes.
+
+[^1]: At some point of this whole assignment, this number
+    was reduced to 4999, and I cannot quite figure out why,
+    but it does not seem to change the results.
+
+We examine pairwise correlations among numeric variables to
+identify redundancy and assess potential multicollinearity:
+
+```{r DA correlation plot}
+numeric_data <- data %>% 
+  dplyr::select(where(is.numeric))
+corr_matrix <- cor(numeric_data, use = "complete.obs")
+plot_correlation(corr_matrix)
+```
+
+While this plot lets us understand that there are some
+variables that seem to be significantly related, it is
+difficult to read. Hence, we can calculate highly correlated
+pairs (r \> 0.65) and if necessary, we remove redundant
+predictors to improve model stability.
+
+```{r DA correlation vars}
+cor_df <- as.data.frame(as.table(corr_matrix))
+subset(cor_df, abs(Freq) > 0.65 & Var1 != Var2)
+```
+
+We can see that many of the aggregated variables are
+correlated with the variables that originally formed them.
+We prioritize keeping the aggregated variables, hence, we
+keep for example `env_concern_index` over `worry_powercuts`,
+`worry_expense_energy`, `worry_depend_fossil` or
+`worry_energy_weather`. Similarly, we keep
+`preference_renewable`, `preference_non_renewable` and
+`balance_gov_personal`.
+
+```{r DA vars selection}
+data <- data %>%
+  dplyr::select(-c(worry_powercuts, worry_expense_energy, worry_depend_fossil, worry_energy_weather, cc_personal_resp, gov_action, elgsun, elgwind, elghydr, elgcoal, elgngas, elgnuc))
+
+```
+
+## Distribution of Target Vars
+
+Let us now visualise our two target variables,
+`cc_red_personal` and `cc_causes`.
+
+
+```{r DA distribution of target vars}
+par(mfrow = c(1, 2))
+
+ggplot(data, aes(x = cc_red_personal)) +
+  geom_histogram(binwidth = 1, fill = "darkolivegreen3", colour = "white") +
+  theme_minimal() +
+  labs(title = "Distribution: Personal Effort to Reduce Climate Change",
+       x = "Support Level (0–10)", y = "Count")
+
+ggplot(data, aes(x = cc_causes)) +
+  geom_bar(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Belief About the Causes of Climate Change",
+       x = "Belief", y = "Count")
+
+par(mfrow = c(1, 1))
+
+data %>% 
+  count(cc_causes)
+
+```
+
+The distribution of `cc_red_personal` reveals a moderate right
+skew, with the most common support level around 5 out of 10.
+This indicates that while many respondents express moderate
+support for personal actions to combat climate change, fewer
+opt for extreme positions.
+
+For `cc_causes`, most respondents believe climate change is
+either equally caused by natural and human factors (n =
+2,154) or caused by human activity (n = 2,147). A smaller
+proportion attributes it solely to natural causes (n = 417),
+and very few deny climate change altogether (n = 39). This
+suggests a moderate consensus around anthropogenic
+influence.
+
+## Bivariate plots 
+
+With bivariate plots we can explore the relation between our target variables and other variables. For example, how belief in personal effort relates to perceptions of government vs personal responsibility and environmental concern. Or also, whether left–right political orientation is associated with beliefs about climate change causes.
+
+```{r DA plots cc_red_personal}
+par(mfrow = c(1,2))  
+# cc_red_personal vs balance_gov_personal
+ggplot(data, aes(x = balance_gov_personal, y = cc_red_personal)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", colour = "springgreen") +
+  labs(title = "Personal Effort vs Gov-Personal Balance",
+       x = "Gov vs Personal Responsibility",
+       y = "Personal Effort to Reduce CC") +
+  theme_minimal()
+
+# cc_red_personal vs env_concern_index
+ggplot(data, aes(x = env_concern_index, y = cc_red_personal)) +
+  geom_jitter(alpha = 0.3) +
+  geom_smooth(method = "lm", colour = "yellow") +
+  labs(title = "Personal Effort vs Environmental Concern",
+       x = "Environmental Concern Index",
+       y = "Personal Effort to Reduce CC") +
+  theme_minimal()
+
+par(mfrow = c(1,1))  
+```
+
+
+Even though it seems weird, the dot patterns actually appear grid-like because both variables are measured on discrete, bounded scales (e.g., 0–10 or 1–5), which limits the number of possible value combinations and causes overlapping points to stack in regular intervals. The fact is that predictors  are not easily captured in simple bivariate visualisations, as the dataset’s structure constrains the expressiveness of standard exploratory plots. Rather than seeing these limitations as flaws, we approach them as a realistic feature of working with attitudinal survey data. 
+
+The first plot shows a strong positive relationship between `balance_gov_personal` and `cc_red_personal.` As individuals shift more responsibility from the government to themselves, their reported willingness to reduce personal energy use increases. This suggests that perceived personal responsibility is a key driver of climate action intentions.
+
+The second plot shows a much weaker association between `env_concern_index` and `cc_red_personal.` Although there is a slight upward trend, the relationship is shallow and dispersed. This may indicate that general environmental concern does not directly translate into concrete willingness to act unless paired with a sense of personal accountability.
+
+```{r DA plot cc_causes}
+ 
+# cc_causes vs ideology
+ggplot(data, aes(x = ideology, fill = cc_causes)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Belief About Climate Change by Political Orientation",
+       x = "Left–Right Scale", y = "Proportion",
+       fill = "Belief") +
+  theme_minimal()
+
+```
+This plot reveals how beliefs about the causes of climate change vary by political orientation. Respondents on the left of the scale (0–3) are more likely to believe that climate change is caused by both human and natural factors, or by humans alone. As political orientation shifts rightward, there’s a slight increase in scepticism and support for the "natural causes" explanation becomes more visible. However, belief in human or mixed causes remains dominant across the entire scale.
+
+
+
+# Classification: Interpretation
+
+```{r storing FINAL data, echo=F}
+saveRDS(data, "data_final.rds")
+data <- readRDS("data_final.rds")
+```
+
+In this section we explore a binary classification problem.
+We want to predict predict whether a respondent believes
+that climate change is mostly caused by human activity.
+
+To do this, we transform the original variable `cc_causes`,
+which captures perceptions on the causes of climate change
+(Human-caused, Natural-caused, Both, No climate change),
+into a binary target variable `cc_belief`. Respondents who believe
+climate change is entirely caused by human activity are
+coded as 1 (believers: human caused), while those who
+attribute it to natural processes, a mix or are unsure are
+coded as 0 (non-believers: natural caused, both, no climate
+change). This dichotomisation aligns with the general
+population differentiation between individuals who accept
+the scientific consensus on anthropogenic climate change and
+those who do not. In preparation for all the tasks ahead, we also do a listwise deletion of all missing values in our target variable of this section. 
+
+```{r CI data_class}
+data_class <- data %>% 
+  mutate(
+    cc_belief = case_when(
+      cc_causes == "Human" ~ 1, # clear belief in human causes
+      cc_causes %in% c("Natural", "Both", "No CC") ~ 0, # all other views
+      TRUE ~ NA_real_
+    ),
+    cc_belief = factor(cc_belief, labels = c("Non-believer", "Believer"))
+  ) %>% 
+  dplyr::select(-cc_causes) %>% 
+  filter(!is.na(cc_belief))
+cat("Classification data:", nrow(data_class), "observations\n")
+
+```
+We are now left with 4757 observations. 
+
+Further, we are going to manually choose a base-category for
+the variable `country`. This is because our model is going
+to compare all countries to a base -category and give us the
+impact of a country towards believing or not in climate
+change in relation to that base-category. Hence, to
+understand what it actually means it is recommendable to
+first understand the base-category itself.
+
+We do this by calculating the average of Believers in the
+countries, then comparing the individual countries to the
+average and choosing the closest to it. Thus, Norway becomes
+our reference country as seen below.
+
+```{r CI country relevel}
+# avg belief rate 
+overall_mean <- mean(data_class$cc_belief == "Believer", na.rm = TRUE)
+
+# belief rate by country
+country_belief <- data_class %>% 
+  group_by(country) %>% 
+  summarise(belief_rate = mean(cc_belief == "Believer", na.rm = TRUE)) %>% 
+  mutate(distance_to_mean = abs(belief_rate - overall_mean)) %>% 
+  arrange(distance_to_mean)
+
+ref_country <- country_belief %>% 
+  slice(1) %>% 
+  pull(country)
+
+ref_country
+
+data_class <-  data_class %>%
+  mutate(country = relevel(country, ref = as.character(ref_country)))
+
+```
+
+## Logistic regression 
+
+Now we can split the dataset into a training set (75%) and
+testing set (25%), and compute a logistic regression.
+
+```{r CI logit.model}
+set.seed(123)
+in_train <- createDataPartition(data_class$cc_belief, p = 0.75, list = FALSE)
+training <- data_class[in_train, ]
+testing  <- data_class[-in_train, ]
+
+
+logit.model <- glm(cc_belief ~ ., 
+                   family = "binomial", 
+                   data = training)
+
+summary(logit.model) 
+exp(coef(logit.model))
+```
+
+Overall, the model highlights attitudes and country of
+residence as major predictors. Perceived
+reality of climate change (`cc_real`, β = 0.33) and worry
+about it (`worry_cc`, β = 0.34) are strong positive
+predictors. Group responsibility (`cc_red_group`, β = 0.12) and support for `taxes_fossil` (β = 0.11) also increases likelihood of belief. Interestingly, demographics play a smaller but notable role: `age` (β = -0.009) and being `female` (β = -0.18) are associated with a lower likelihood of belief, while `edu_years` has a small positive effect (β = 0.021). `Country` effects are also visible: compared to the baseline (Norway), respondents in Austria (β = 1.01), Belgium (β = 0.77), Spain (β = 0.72), Italy (β = 0.60), Finland (β = 0.59), and Israel (β = 0.51) are significantly more likely to believe. In contrast, countries like France, Lithuania, and Slovenia show no significant difference.
+
+Let us take a closer look at the age predictor.
+
+```{r CI logit.model plot}
+plot(ggpredict(logit.model, terms = "age [all]"))
+
+```
+
+The plot shows that as age increases, the predicted
+probability of believing in human-caused climate change
+steadily decreases from nearly 50% in younger adults to
+around 30% in older age groups.
+
+We can try to make a more concise model only with the
+variables that showed promise in prediction.
+
+```{r CI logit.model_b}
+logit.model_b <- glm(cc_belief ~ 
+                       cc_real + worry_cc + cc_impact + 
+                      cc_red_group + taxes_fossil + age + female + edu_years, 
+                     family = "binomial", 
+                     data = training)
+
+summary(logit.model_b)
+AIC(logit.model, logit.model_b)
+```
+
+Our reduced model confirms that belief that climate change
+is real, worry, group responsibility, and support
+for fossil fuel taxes all significantly increase the
+likelihood of belief. Age and being female are associated
+with lower belief, and higher education has a weakly
+positive effect.
+
+While the AIC of the second model is a bit worse (4237.902
+vs 4426.808 of the first model), this is likely because we
+have higher observation counts due to having less variables
+and therefore less missing information from the variable
+`cc_red_personal` (which we left with missing data due to
+being or other target variable).
+
+We can again take a closer look at some predictors:
+
+```{r CI logit.model_b vis}
+gg.pred <- ggpredict(logit.model_b, terms = c("cc_real", "taxes_fossil", "female"), ci_level = NA)
+plot(gg.pred)
+```
+
+As belief in the reality of climate change increases
+(`cc_real`), the predicted probability of believing it is
+human-caused also increases, particularly for those who
+support taxing fossil fuels. Men consistently show higher
+probabilities than women across all values.
+
+# Classification: Prediction
+
+## Benchmark
+
+Moving on to prediction, we firstly create simple model as a
+benchmark so that we can evaluate the performance of more
+complex models. The benchmark model uses no predictors,
+instead it estimates the probability of belief based on the
+overall proportion of believers in the training data.
+
+```{r CP benchmark}
+testing$cc_belief <- fct_recode(testing$cc_belief,
+                                "FALSE" = "Non-believer",
+                                "TRUE" = "Believer")
+
+bench.model <- glm(cc_belief ~ 1, family=binomial(link='logit'), data=training)
+probability <- predict(bench.model, newdata=testing, type="response")
+
+prediction <- as.factor(ifelse(probability > 0.5, "TRUE", "FALSE"))
+levels(prediction) = c("FALSE", "TRUE")
+
+cat("Benchmark model\n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+
+```
+
+Since the probably of believers is below 0.5, the model
+classifies every respondent as a non-believer. We can see
+this in the confusion matrix as all predictions are "FALSE"
+(non-believer), with 652 true negatives and 536 false
+negatives, and absolutely no "TRUE" predictions at all. This
+leads to an accuracy of 54.9%, which is actually the
+proportion of non-believers in the test set. The Kappa is 0
+so the model has no actual predictive power, it is actually
+worse than random guessing. Hence, this model is not
+suitable for classification.
+
+## Logistic regression from before
+
+We can now test the logistic regression model using actual
+predictors for classification.
+
+```{r CP LR pred comparison}
+# full model 
+probability <- predict(logit.model, newdata=testing, type='response')
+prediction <- as.factor(ifelse(probability > 0.5, TRUE, FALSE))
+
+cat("Full logit.model\n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+
+# b model
+probability <- predict(logit.model_b, newdata=testing, type='response')
+prediction <- as.factor(ifelse(probability > 0.5, TRUE, FALSE))
+
+cat("\n\nB logit.model\n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+```
+
+Interestingly, the original logistic regression model using all variables performs slightly better than the reduced model with selected predictors. Still, both models outperform the benchmark.
+
+The full model (`logit.model`) correctly classifies 455 non-believers and 333 believers, with an accuracy of 67.9% and a Kappa of 0.35, indicating moderate agreement beyond chance. The reduced model (`logit.model_b`) performs slightly worse, with 465 non-believers and 331 believers correctly classified, and a lower accuracy of 67.0% and Kappa of 0.33.
+
+While both models show improvement over the baseline, there remains room for enhancing predictive precision. Hence, we can
+explore whether adjusting the prediction threshold improves
+performance. We can try using the ROC-curve to identify the
+best possible threshold.
+
+```{r CP LR roc comparison}
+roc_curve <- roc(testing$cc_belief ~ probability)
+plot(roc_curve, print.thres=TRUE)  
+
+threshold <- 0.492
+
+# first model 
+probability <- predict(logit.model, newdata=testing, type='response')
+prediction <- as.factor(ifelse(probability > threshold, TRUE, FALSE))
+
+cat("Full logit.model with new threshold \n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+
+# b model
+probability <- predict(logit.model_b, newdata=testing, type='response')
+prediction <- as.factor(ifelse(probability > threshold, TRUE, FALSE))
+
+cat("\n\nB logit.model with new threshold \n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+```
+
+The ROC curve suggests an optimal threshold of 0.492. Applying this to the predictions:
+
+- The full model (`logit.model`) correctly classifies 448 non-believers and 342 believers, yielding an accuracy of 68.0% and a Kappa of 0.36.
+- The reduced model (`logit.model_b`) correctly classifies 458 non-believers and 340 believers, with an accuracy of 67.2% and a Kappa of 0.34.
+
+Compared to the default 0.5 threshold:
+
+- The full model’s accuracy remains nearly unchanged (67.9% → 68.0%), with a slight improvement in Kappa (0.350 → 0.356).
+- The reduced model’s accuracy increases marginally (67.0% → 67.2%), as does Kappa (0.332 → 0.337).
+
+Overall, adjusting the threshold leads to minor gains, suggesting the default 0.5 cut-off is nearly as effective. The trade-off between sensitivity and precision is minimal.
+
+## Machine Learning (ML)
+
+We can now move on to applying ML in order to
+keep making the model better. We drop any remaining observations with missing values in order to work with clean datasets, especially since most machine learning methods cannot handle NAs.
+
+
+```{r CP ML data_class_ml}
+data_class_ml <- data_class %>%
+  drop_na()
+
+dim(data_class_ml)
+```
+We have now a dataset of 4616 observations. We can again create our training and testing data: 
+
+```{r CP ML dataPartition}
+set.seed(123)
+in_train <- createDataPartition(data_class_ml$cc_belief, p = 0.75, list = FALSE)
+
+training <- data_class_ml[in_train, ]
+testing  <- data_class_ml[-in_train, ]
+
+```
+
+
+### LDA
+
+First we can try with LDA (Linear Discriminant Analysis). For LDA we need to remove our categorical variables. 
+
+```{r CP ML lda.model}
+# remove categorical variables 
+data_lda <- data_class_ml[, !(sapply(data_class_ml, is.factor) & names(data_class_ml) != "cc_belief")]
+
+# predictions
+set.seed(123)
+in_train <- createDataPartition(data_lda$cc_belief, p = 0.75, list = FALSE)
+
+training <- data_lda[in_train, ]
+testing  <- data_lda[-in_train, ]
+
+lda.model <-  lda(cc_belief ~. , data = training)
+lda.model
+```
+
+Believers are younger (46.3 vs. 51.2), slightly more educated (13.7 vs. 12.9), and more concerned about climate change (worry_cc: 3.30 vs. 2.81). They support taxing fossil fuels (2.90 vs. 2.43) and subsidising renewables (4.20 vs. 3.96). Believers are more likely from very high-income countries (67.9% vs. 61.0%) and countries like Spain, Italy, and Austria. Non-believers are more common in France, Lithuania, and Slovenia.
+
+The LD1 coefficients show belief is most associated with thinking climate change is real (`cc_real` = 0.43), worry (`worry_cc` = 0.43), and valuing the environment (`important_env_2` = 0.46). Non-belief links to older `age` (−0.010), being `female` (−0.25), and low `env_concern_index` (−0.23).
+
+```{r CP ML lda prediction}
+probability <- predict(lda.model, newdata=testing)$posterior
+prediction <- predict(lda.model, newdata=testing)$class
+
+cat("LDA\n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+```
+
+The confusion matrix shows that LDA correctly classified 440 non-believers and 308 believers. The model achieves an accuracy of 64.8% and a Kappa of 0.28. 
+
+While it performs reasonably well, it does not outperform the logistic regression model, so we need to keep improving the model for better predictions 
+
+
+#### K-folds and Cross-Validation
+
+With K-fold we are able to train our model multiple times. With k = 10, we divide the dataset into ten subsets, then train the data on 9 of the subsets and validate it on the remaining subset. This is repeated each time changing the validation subset. The goal is to identify the most effective coefficients to enhance the predictive power of the model. 
+
+```{r CP ML ctrl}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 10,
+                     classProbs = T,
+                     summaryFunction=twoClassSummary,
+                     verboseIter = T)
+
+
+# renaming for fit 
+levels(training$cc_belief)=c("No","Yes")
+levels(testing$cc_belief)=c("No","Yes")
+```
+
+Now we set out to find the best combination of  hyperparameters in order to maximize the AUC metric and ROC curve. 
+
+```{r CP ML lda train}
+ctrl$verboseIter=F
+# Define a grid for the hyper-parameters
+param_grid = expand.grid(gamma = seq(0, 1, 0.1), lambda = seq(0.1, 0.9, 0.1))
+
+# Train to maximize AUC: metric="ROC"
+ldaFit <- train(cc_belief ~ ., 
+                method ="rda", 
+                data = training,
+                tuneGrid = param_grid,
+                preProcess = c("center", "scale"),
+                metric="ROC",
+                trControl = ctrl)
+plot(ldaFit)
+ldaFit$bestTune
+
+```
+
+Overall, models perform best with low gamma values (0–0.4), while lambda has a stronger influence. Performance improves as lambda increases, with the ROC peaking at gamma = 0 and lambda = 0.9.
+
+```{r CP ML lda test}
+ldaPred <- predict(ldaFit, testing)
+
+cat("LDA with tuned hyperparameters\n\n")
+confusionMatrix(ldaPred, testing$cc_belief)$table
+confusionMatrix(ldaPred, testing$cc_belief)$overall[1:2]
+```
+
+The regularised LDA model achieved 65.1% accuracy and a modest Kappa of 0.29, indicating fair agreement beyond chance. Compared to the standard LDA, performance improved slightly, especially in balancing false positives and false negatives. However, misclassification remains substantial.
+
+We can try to adjust the ROC curve manually. 
+
+```{r CP ML lda roc test}
+# roc threshold 
+
+ldaProb = predict(ldaFit, testing, type="prob")
+roc.lda <- roc(testing$cc_belief ~ ldaProb[,2])
+plot(roc.lda, print.thres=TRUE)
+
+threshold = 0.489
+
+prediction <- as.factor(ifelse(ldaProb[,2] > threshold, "Yes", "No"))
+
+cat("LDA with tuned threshold\n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+```
+
+
+With the manually tuned threshold of 0.489, the regularised LDA model achieves 65.3% accuracy and a Kappa of 0.30. This marks a slight improvement over both the default threshold and standard LDA, showing that adjusting the threshold can help improve model sensitivity. However, misclassification still remains notable.
+
+### KNN
+
+Another machine learning method we test is k-nearest neighbours (KNN), which classifies an observation based on the majority class among its k nearest neighbours. We tune the number of neighbours to optimise performance, using the ROC as our evaluation metric. 
+
+```{r CP ML knn train}
+ctrl$verboseIter=F
+knnFit <- train(cc_belief ~ ., 
+                  data = training,
+                  method = "kknn",  
+                  preProc=c('scale','center'),
+                  tuneLength = 10, 
+                  metric="ROC",
+                  trControl = ctrl)
+plot(knnFit)
+```
+
+The plot shows a clear upward trend in ROC as the number of neighbors increases, indicating that larger neighborhoods improve predictive performance. The highest AUC is reached at the maximum tested neighbors (23), suggesting that considering more neighbors provides better prediction of climate change belief. 
+
+
+```{r CP ML knn test}
+knnProb <- predict(knnFit, testing, type="prob")
+
+# roc threshold 
+roc_knn <- roc(response = testing$cc_belief, predictor = knnProb[, "Yes"])
+plot(roc_knn, print.thres = TRUE)
+threshold <- 0.468
+
+# prediction
+prediction <- as.factor(ifelse(knnProb[,2] > threshold, "Yes", "No"))
+
+cat("KNN with tuned threshold \n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+
+```
+
+The ROC curve helped us select an optimal threshold of 0.468 for the KNN model. At this threshold, KNN achieves 63.5% accuracy and a Kappa of 0.27, indicating fair agreement beyond chance. Compared to LDA’s tuned model (65.1% accuracy, 0.29 Kappa), KNN performs slightly worse but remains a reasonable classifier. Still, both models still show substantial misclassification.
+
+### Decision Trees
+
+The next ML tool that we can try are Decision Trees, which classify data by recursively splitting it into branches based on feature values to create simple decision rules that predict the target variable.
+
+```{r CP ML decision trees train}
+ctrl$verboseIter=F
+
+# hiper parametros 
+control <- rpart.control(minsplit = 30, maxdepth = 10, cp = 0.01)
+
+dtFit <- rpart(cc_belief ~., data=training, method = "class", control = control)
+
+summary(dtFit)
+
+rpart.plot(dtFit, digits=3)
+```
+
+The decision tree highlights that belief in climate change largely depends on how respondents perceive its global impact and their personal worry. The variable `cc_impact` asks: “How good or bad do you think the impact of climate change will be on people across the world? Please choose a number from 0 (extremely bad) to 10 (extremely good).” Respondents who expect a bad impact (`cc_impact` < 4) have a higher probability of believing in climate change (about 56%), while those who expect a neutral or positive impact (`cc_impact` ≥ 4) are more likely to be non-believers (32%). Among the more worried subgroup (`worry_cc` < 4), the tree further divides based on climate change group identity (`cc_red_group` < 6), splitting respondents into smaller groups with varying probabilities. Those with lower worry scores (`worry_cc` < 3) are less likely to believe (40.5%), while higher worry is linked to stronger belief (up to 69%). These splits are great insight and show how both the perception of climate change severity and the intensity of personal concern shape climate change belief patterns avout climate change causers.
+
+
+```{r CP ML decision trees test}
+# roc threshold
+dtProb <- predict(dtFit, testing, type = "prob")[, "Yes"]
+roc_dt <- roc(response = testing$cc_belief, predictor = dtProb)
+plot(roc_dt, print.thres = TRUE)
+threshold <- 0.515
+
+# prediction
+dtPred <- predict(dtFit, testing, type = "class")
+dtProb <- predict(dtFit, testing, type = "prob")
+
+prediction <- as.factor(ifelse(dtProb[,2] > threshold, "Yes", "No"))
+
+cat("Decision tree with tuned threshold \n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+```
+
+The Decision Tree model achieves an accuracy of 63.8% and a Kappa of 0.26, showing moderate predictive performance. According to the confusion matrix, it correctly predicts 464 non-believers (true negatives) and 272 believers (true positives), but misclassifies 255 believers as non-believers (false negatives) and 163 non-believers as believers (false positives). 
+
+Compared to previous models like LDA and KNN, it performs similarly but does not surpass them. The gain of decision trees is that they provide clear interpretability through their branches. Still, their predictive power here seems to be is limited.
+
+### Random Forest
+
+We are now going to try out Random Forest, which is an ensemble learning method which computes multiple decision trees. The combination of their predictions is used to improve accuracy and reduce overfitting.
+
+
+```{r CP ML rf train}
+rfFit <- train(cc_belief ~ ., 
+                  data = training,
+                  method = "rf",   
+                  preProc=c('scale','center'),
+                  tuneLength = 10, 
+                  metric="ROC",
+                  trControl = ctrl)
+
+               
+plot(rfFit)
+```
+
+This plot shows how the Random Forest model's ROC performance varies with the number of randomly selected predictors used at each split. We observe that the highest ROC value is achieved when only 2 predictors are randomly selected, with performance declining as the number of predictors increases. This suggests that limiting the number of predictors considered at each split helps the model generalize better and avoid overfitting for this dataset.
+
+Overall, the model performs best using a small subset of features at each split, reflecting the strength of Random Forest's random feature selection in improving predictive accuracy and robustness.
+
+```{r CP ML rf test}
+# roc threshold
+rfProb <- predict(rfFit, testing, type = "prob")[, "Yes"]
+roc_rf <- roc(response = testing$cc_belief, predictor = rfProb)
+plot(roc_rf, print.thres = TRUE)
+threshold <- 0.483
+
+# prediction
+rfProb <- predict(rfFit, testing, type="prob")
+prediction <- as.factor(ifelse(rfProb[,2] > threshold, "Yes", "No"))
+
+cat("Random Forest with tuned threshold \n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+
+```
+
+
+The Random Forest model, using an ROC-based threshold of 0.483, achieves an accuracy of 66.6% and a Kappa of 0.32, indicating moderate predictive performance with fair agreement beyond chance. The confusion matrix shows it correctly predicts 453 non-believers and 316 believers, while misclassifying 174 believers and 211 non-believers. This represents an improvement over previous models in both accuracy and balance between false positives and false negatives. Yay! 
+
+### Gradient Boosting
+
+Now we explore Gradient Boosting. It is an advanced ensemble learning technique that builds models sequentially, where each new model aims to correct the errors of the previous ones. By combining many weak learners it creates a strong predictive model with improved accuracy and robustness.
+
+```{r CP ML gb tran & test, warning = FALSE, message=FALSE, }
+ctrl$verboseIter=F
+
+gbmFit <- train(cc_belief ~ ., 
+                  data = training,
+                  method = "xgbTree",   
+                  preProc=c('scale','center'),
+                  tuneLength = 4, 
+                  metric="ROC",
+                  trControl = ctrl)
+
+plot(gbmFit)
+
+# roc threshold 
+gbmProb <- predict(gbmFit, testing, type = "prob")[, "Yes"]
+roc_gbm <- roc(response = testing$cc_belief, predictor = gbmProb)
+plot(roc_gbm, print.thres = TRUE)
+threshold <- 0.465 
+
+# prediction 
+gbmProb <- predict(gbmFit, testing, type="prob")
+prediction <- as.factor(ifelse(gbmProb[,2] > threshold, "Yes", "No"))
+
+cat("Gradient Boosting with tuned threshold \n\n")
+confusionMatrix(prediction, testing$cc_belief)$table
+confusionMatrix(prediction, testing$cc_belief)$overall[1:2]
+
+```
+The Gradient Boosting model, tuned using the ROC curve, achieves an accuracy of approximately 65.1% and a Kappa of 0.30, indicating fair predictive performance beyond chance. With a threshold set at 0.465, the model balances sensitivity and specificity, correctly predicting 419 non-believers and 332 believers. However, it still misclassifies a notable number of cases, with 195 false negatives and 208 false positives. Overall, Gradient Boosting performs comparably to previous models, yet still slightly worse than Random Forest. 
+
+## Comparing ML models
+
+To better understand how our models make predictions, we examine variable importance and partial dependence plots. Variable importance highlights which predictors have the strongest influence on the model’s decisions, while partial dependence plots show thechanging effects of variabless. 
+
+
+```{r CP ML varImp rf}
+rf_imp <- varImp(rfFit, scale = F)
+plot(rf_imp, scales = list(y = list(cex = .95)))
+
+partial(rfFit, pred.var = "age", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rfFit, pred.var = "cc_impact", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(rfFit, pred.var = "balance_gov_personal", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+```
+
+The Random Forest variable importance plot highlights the key predictors driving the model’s classification of climate change belief. We can insert the top three variables, `age`, `cc_impact` and `balance_gov_personal` into the dependence plots. 
+
+The partial dependence plot for `age` shows a clear negative relationship: as age increases, the predicted probability of believing in climate change decreases, especially steeply from younger to middle ages before stabilising somewhat in older age groups. For `cc_impact`, which measures how good or bad respondents think the impact of climate change will be globally (0 = extremely bad, 10 = extremely good), higher perceived impact values correspond to a lower predicted probability of belief, indicating that those who view climate change impact more positively are less likely to believe in it. Lastly, the `balance_gov_personal` plot shows a positive relationship with belief probability: as respondents assign more responsibility to the government relative to themselves for addressing climate change, the likelihood of belief increases, leveling off at higher values.
+
+
+```{r CP ML varImp gb}
+gbm_imp <- varImp(gbmFit, scale = F)
+plot(gbm_imp, scales = list(y = list(cex = .95)))
+
+partial(gbmFit, pred.var = "cc_impact", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(gbmFit, pred.var = "worry_cc", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+partial(gbmFit, pred.var = "cc_red_group", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+```
+
+
+For the Gradient Boosting model, the variable importance plot indicates `cc_impact `as the strongest predictor, followed by `worry_cc`, `cc_red_group`, `cc_real`, and `age.` Other predictors show smaller influence.
+
+The partial dependence plots for Gradient Boosting reveal:
+
+- `cc_impact`: similar to Random Forest, belief probability decreases as perceived impact shifts towards “better” (higher scores), with a clear drop between 0 and around 5, then a slight increase after 8.
+- `worry_cc`: increasing worry about climate change corresponds to a rising probability of belief, especially notable from levels 3 to 5.
+- `cc_red_group`: the belief probability remains low at lower values but increases sharply beyond a threshold (~5), indicating greater belief among those more engaged with climate change reduction groups.
+
+For comparison, we can check a pcp for the LDA model and the `cc_impact` variable, as it also appeared in the Random Forest and Gradient Boosting models. 
+
+```{r CP ML pcp lda}
+partial(ldaFit, pred.var = "cc_impact", which.class=2, plot = TRUE, prob=TRUE, rug = TRUE)
+```
+
+
+We can clearly see a different capture of the variable `cc_impact`. Random Forest shows a non-linear pattern where belief probability declines sharply as perceived impact improves (from very bad to moderate), then stabilizes at higher values. Gradient Boosting also shows a sharp decline in belief probability as perceived impact becomes less severe, though it dips continuously without the slight rebound seen in Random Forest at the highest values. LDA, by contrast, depicts a roughly linear negative relationship, with belief probability steadily decreasing as perceived impact moves from bad to good, reflecting its assumption of linearity. All in all, the flexible ML models capture subtle non-linearities that LDA smooths over.
+
+
+## Conclusions: Classification
+
+Among the models tested, Random Forest and Linear Discriminant Analysis (LDA) consistently delivered the strongest predictive performance, with Random Forest showing a slight edge in accuracy and Kappa statistics. Both models demonstrate a reasonable ability to classify beliefs about climate change, balancing sensitivity and specificity better than other methods like KNN, Decision Trees, or Gradient Boosting.
+
+Key variables repeatedly emerge as influential across models: `age`, perceived impact of climate change (`cc_impact`), and balance between government and personal responsibility (`balance_gov_personal`) are among the top predictors. Additionally, variables related to climate concern and political attitudes, such as `worry_cc` and `cc_red_group`, appear important, underscoring that both demographic and attitudinal factors shape belief.
+
+While no model achieves perfect classification, clearly reflecting the complexity of predicting climate change belief, the combined results highlight meaningful predictors and offer a robust framework for understanding the drivers of belief across the population studied. 
+
+
+# Regression: Interpretation
+
+```{r RI data}
+data <- readRDS("data_final.rds")
+```
+
+
+In this section, we focus on a regression task aimed at predicting how likely individuals are to reduce their personal energy use in order to combat climate change. The target variable for this task is `cc_red_personal`, derived from the ESS question: "How likely do you think it is that limiting your own energy use would help reduce climate change?" Responses range from 1 (very unlikely) to 10 (very likely). This task allows us to explore which sociodemographic, political, and attitudinal factors are most strongly associated with personal willingness to act on climate change. 
+
+As a first step, we filter out any respondents with missing values in our target variable to ensure a clean training and testing process.
+
+```{r RI data_regg}
+data_regg <- data %>%
+  mutate(
+    cc_red_personal = if_else(cc_red_personal > 10, NA_real_, cc_red_personal)
+  ) %>%
+  filter(!is.na(cc_red_personal))
+
+cat("Regression data:", nrow(data_regg), "observations\n")
+```
+
+
+We are now left with 4692 observations. 
+
+We also change some of the categorical variables to still be able to use them. This time, we are choosing Spain as our base category for `country`, due to personal interest and curiosity. 
+
+```{r RI data_regg factors}
+data_regg <- data_regg %>%
+  mutate(female = as.numeric(as.character(female))) %>% # already coded as "0" and "1" 
+  
+  # closest to 
+  mutate(country = fct_relevel(country, "Spain")) %>% 
+  
+  # relevel
+  mutate(cc_causes = fct_relevel(cc_causes, "Human", "Both", "Natural", "No CC")) %>%
+  
+  # one hot encoding
+  mutate(
+    important_env = factor(important_env),
+    important_trad = factor(important_trad),
+    income_group = factor(income_group)
+  ) %>%
+  fastDummies::dummy_cols(select_columns = c("important_env", "important_trad", "income_group"),
+                          remove_selected_columns = TRUE)
+
+```
+
+
+## Multiple regression 
+
+Next, we split the dataset into training (75%) and testing (25%) sets.  
+
+```{r RI MR dataPartition}
+set.seed(123)
+in_train <- createDataPartition(data_regg$cc_red_personal, p = 0.75, list = FALSE) 
+training <- data_regg[ in_train,]
+testing <- data_regg[-in_train,]
+```
+
+Now we take a look at the most correlated variables with our target variable `cc_red_personal` so that we can select them as our features. 
+
+```{r RI MR correlated vars}
+numeric_training <- training %>% 
+  dplyr::select(where(is.numeric))
+
+correlations <- sort(cor(numeric_training)["cc_red_personal", ], decreasing = TRUE)
+corr <- data.frame(
+  variable = names(correlations),
+  corr = as.numeric(correlations)
+)
+
+ggplot(corr, aes(x = reorder(variable, corr), y = corr)) +
+  geom_segment(aes(xend = variable, y = 0, yend = corr), colour = "grey") +
+  geom_point(size = 3, colour = "steelblue") +
+  coord_flip() +
+  labs(x = "Predictors", y = "Correlation with cc_red_personal") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 12)
+  )
+
+```
+
+The highest correlations with `cc_red_personal` are by the variables: `balance_gov_personal`, `cc_red_group`, `confidence_less_energy`, `worry_cc` and `taxes_fossil.` Now we can create the model. It is important that we scale first our numeric variables so that we can later compare the coefficients. 
+
+```{r RI MR scaling, LM}
+# scaling
+training_scaled <- training %>%
+  mutate(
+    balance_gov_personal = as.numeric(scale(balance_gov_personal)),
+    cc_red_group = as.numeric(scale(cc_red_group)),
+    confidence_less_energy = as.numeric(scale(confidence_less_energy)),
+    worry_cc = as.numeric(scale(worry_cc)),
+    taxes_fossil = as.numeric(scale(taxes_fossil))
+  )
+
+linFit <- lm(cc_red_personal ~ female + country + cc_causes +                balance_gov_personal + cc_red_group + confidence_less_energy + worry_cc + taxes_fossil, 
+             data = training_scaled)
+
+summary(linFit)
+```
+
+The model explains 36.7% of the variation in beliefs about the effectiveness of reducing personal energy use to combat climate change. The strongest predictors are attitudes around responsibility and social norms. Specifically, believing that the government should take more responsibility (β = 0.90) and perceiving that others are doing their part (β = 0.80) are both highly associated with stronger personal belief in action. Confidence in one’s ability to reduce energy use (β = 0.26), worry about climate change (β = 0.13), and support for fossil fuel taxes (β = 0.10) also show significant positive effects.
+
+Country-level differences are notable. Compared to Spain, respondents in several countries, particularly Estonia (β = -1.10), Finland (β = -0.97), Slovenia (β = -1.01), and Sweden (β = -0.95), report significantly lower perceived personal impact. Beliefs about climate change causes also matter: those attributing climate change to both human and natural causes (β = 0.16) or to nature alone (β = 0.31) report higher perceived efficacy. Gender has no significant effect.
+
+## Model Selection
+
+We can look for ways to make our stronger. With feature engineering we can create squared terms to capture non-linear relationships. Specifically, we square our strongest continuous predictors (`balance_gov_personal`, `cc_red_group`, and `confidence_less_energy`) to test whether their effects on the outcome are better explained by curved rather than linear relationships. We do not use any log transformation as the variables here are in scales from 1-10, which limits potential skewness. 
+
+
+```{r RI MS data_fe}
+# engineered features to the full regression dataset
+data_fe <- data_regg %>%
+  mutate(
+    balance_gov_personal = as.numeric(scale(balance_gov_personal)),
+    cc_red_group = as.numeric(scale(cc_red_group)),
+    confidence_less_energy = as.numeric(scale(confidence_less_energy)),
+    worry_cc = as.numeric(scale(worry_cc)),
+    taxes_fossil = as.numeric(scale(taxes_fossil)),
+    balance_gov_personal2 = balance_gov_personal^2,
+    cc_red_group2 = cc_red_group^2,
+    confidence_less_energy2 = confidence_less_energy^2
+  )
+
+# split
+set.seed(123)
+in_train <- createDataPartition(data_fe$cc_red_personal, p = 0.75, list = FALSE)
+training_fe <- data_fe[in_train, ]
+testing_fe  <- data_fe[-in_train, ]
+
+```
+
+Now that we have added squared versions of the key predictors, we fit a new linear model that includes both the original variables and their squared forms. This allows the model to capture potential non-linear effects (e.g., diminishing or accelerating returns).
+
+```{r RI MS LM}
+linFit_fe <- lm(cc_red_personal ~ female + country + cc_causes + balance_gov_personal + balance_gov_personal2 + cc_red_group + cc_red_group2 + confidence_less_energy + confidence_less_energy2 + worry_cc + taxes_fossil,
+                data = training_fe)
+summary(linFit_fe)
+```
+
+
+After adding squared terms for key predictors, the adjusted R^2^  increases slightly from 0.3616 to 0.3655, showing only a minimal improvement in explanatory power. The main linear effects remain strong: believing the government should take responsibility (β = 0.95), perceiving group action (β = 0.79), and feeling confident in one’s ability to reduce energy use (β = 0.17) are all positively associated with belief in the effectiveness of personal energy reduction. The squared term for `balance_gov_personal` is negative (β = -0.06), suggesting diminishing returns at higher levels of government-focused responsibility. Likewise, the squared term for `confidence_less_energy` is negative (β = -0.13), indicating that the positive effect of confidence weakens slightly at higher values. The squared term for `cc_red_group` adds no substantial explanatory power.
+
+Country effects remain largely consistent. Compared to Spain, countries such as Estonia, Finland, Slovenia, Norway, and Sweden continue to show lower predicted scores on the outcome. Beliefs about climate change causes also play a role: respondents attributing climate change to both human and natural causes (β = 0.15), or to natural causes alone (β = 0.31), score slightly higher than those attributing it solely to human causes.
+
+### Automated model selection 
+
+We can now use automated model selection techniques to find a more efficient version of our regression model. 
+
+#### Best subset 
+
+Below, we apply a best subset selection procedure, which evaluates all possible combinations of the included predictors to identify the most efficient subset.
+
+```{r RI AMS best subset}
+ols_step_best_subset(linFit_fe)
+```
+
+The best-performing model in terms of adjusted R^2^ includes just 9 predictors: `country`, `cc_causes`, `balance_gov_personal` and its squared term, `cc_red_group`, `confidence_less_energy` and its squared term, `worry_cc`, and `taxes_fossil`. This model reaches an adjusted R^2^ of 0.3713, nearly identical to the full model (0.3655), suggesting that the simpler version achieves the same explanatory power with fewer variables. Notably, `female`, `cc_red_group2`, and other terms contribute little to model performance. 
+
+
+#### Forwards stepwise (p-values)
+We can also apply forward stepwise regression based on p-values. Starting from an empty model, variables are added sequentially based on their statistical contribution.
+
+```{r RI AMS forward p}
+ols_step_forward_p(linFit_fe) # forward based on p-value
+```
+
+The resulting model includes 9 predictors and reaches the same adjusted R^2^ (0.3655) as the full model. The order of entry highlights the relative importance of predictors: `balance_gov_personal` and `cc_red_group` enter first, followed by `confidence_less_energy2`, `worry_cc`, and `confidence_less_energy`. `Country`, `taxes_fossil`, the squared term of `balance_gov_personal`, and finally `cc_causes` are added last. This reinforces the central role of attitudinal variables, while suggesting that interaction and additional complexity beyond these core predictors may be unnecessary.
+
+#### Forwards stepwise (aic)
+
+To validate our variable selection, we also run forward stepwise regression using the Akaike Information Criterion (AIC). This method prioritises overall model fit while penalising complexity.
+
+```{r RI AMS forward aic}
+ols_step_forward_aic(linFit_fe)
+```
+
+The same 9-variable model identified by best subset and p-value-based forward selection emerges here as optimal, with an adjusted R^2^ of 0.365. This confirms that attitudinal factors such as belief in government responsibility, perceived group action, confidence in reducing energy use, and worry about climate change are consistently the most informative predictors.
+
+### Model with automated chosen variables 
+
+Finally, we optimize our model using only the variables selected by all three methods. We will continue using this specific combination of variables later on. 
+
+```{r RI AMS linFit_final}
+linFit_final <- lm(cc_red_personal ~ country + cc_causes + balance_gov_personal + balance_gov_personal2 + cc_red_group + confidence_less_energy + confidence_less_energy2 + worry_cc + taxes_fossil,                   
+                   data = training_fe)
+
+summary(linFit_final)
+```
+
+The streamlined regression model achieves an adjusted R^2^ of 0.3657, matching the performance of the full model. This confirms that a more compact set of variables can explain the same proportion of variance in perceived personal responsibility to reduce climate change. Key predictors include:
+
+- `balance_gov_personal` (+ squared): People who place more responsibility on the government tend to feel less personal responsibility, though this effect flattens at extremes.
+- `cc_red_group`: Belief in group action strongly boosts personal responsibility.
+- `confidence_less_energy` (+ squared): Confidence in reducing energy use increases responsibility, but with diminishing returns.
+- `worry_cc` and `taxes_fossil`: Greater worry and support for fossil fuel taxes are both linked to higher personal responsibility.
+- `cc_causes`: Belief in human-caused climate change predicts stronger personal commitment.
+- `country`: Several countries (e.g., Estonia, Finland, Sweden) show lower scores than the baseline.
+
+This final model reinforces the central role of attitudinal factors in shaping climate-related behaviour, with sociodemographics (like gender) contributing little. 
+
+```{r RI AMS linFit_final comparison}
+test_clean <- testing_fe |> 
+  drop_na()
+
+predictions <- predict(linFit_final, newdata = test_clean)
+
+R2_final <- cor(test_clean$cc_red_personal, predictions)^2
+print(paste("R²:", round(R2_final, 4)))
+
+RMSE <- sqrt(mean((predictions - test_clean$cc_red_personal)^2))
+print(paste("RMSE:", round(RMSE, 2)))
+
+par(mfrow = c(1,2))  
+plot(linFit_final, which = 1) # residuals vs fitted
+plot(linFit_final, which = 2) # qq plot
+
+par(mfrow = c(1, 1))
+```
+
+The model achieves an R^2^ of 0.339, indicating that the selected predictors explain about 34% of the variance in climate change personal responsibility scores (`cc_red_personal`). The RMSE of 2.15 suggests moderate average prediction error on a 0–10 scale. The residual diagnostics indicate acceptable model behaviour. The residuals vs fitted plot shows a funnel-like shape, suggesting some heteroscedasticity, where residual variance decreases at higher fitted values. There are also a few notable outliers. The Q-Q plot is mostly linear, though some deviations occur in both tails, implying mild non-normality in residuals. Overall, these issues are not severe, and the model seems to remains suitable for interpretation.
+
+# Regression: Prediction
+
+We now turn to the prediction task, aiming to model individuals’ perceived personal responsibility in addressing climate change through energy usage (`cc_red_personal`). This section is divided into two stages. First, we apply statistical learning techniques such as linear regression and regularisation to establish strong baselines. Then, we explore machine learning algorithms to capture potential non-linear patterns and improve predictive performance. The overall goal is to evaluate how well different approaches can explain and predict variation in climate-related attitudes.
+
+## Statistical tools
+
+Before testing ML algorithms, we first refine our linear modelling approach using cross-validation and regularised regression. These statistical learning tools allow us to compare different regression variants like standard linear regression, stepwise selection, Ridge, Lasso, and Elastic Net, in terms of out-of-sample predictive accuracy. This step helps us establish a performance baseline and identify whether added complexity or regularisation improves prediction.
+
+First, we create a new dataset that includes the same feature-engineered variables used in our final regression model (squared terms of attitudinal predictors), but without scaling. This allows us to delegate scaling and centering decisions to the model training process using caret::train(), ensuring consistency across models that require different preprocessing treatments. We then re-split the data into training and testing sets to avoid any data leakage.
+
+```{r RP ST data_regg, dataPartition}
+# new feature-engineered but unscaled dataset
+data_regg <- data_regg %>% 
+  mutate(
+    balance_gov_personal2 = balance_gov_personal^2,
+    cc_red_group2 = cc_red_group^2,
+    confidence_less_energy2 = confidence_less_energy^2
+  ) %>% 
+  drop_na()
+
+set.seed(123)
+in_train <- createDataPartition(data_regg$cc_red_personal, p = 0.75, list = FALSE)
+training <- data_regg[in_train, ]
+testing  <- data_regg[-in_train, ]
+```
+
+
+Now, we set up cross-validation and create a daraframe where to store our results. 
+
+```{r RP ST ctrl}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, repeats = 1)
+
+test_results <- data.frame(original = testing$cc_red_personal)
+```
+
+### LM
+
+```{r RP ST lm}
+simpleModel <- cc_red_personal ~ country + cc_causes + balance_gov_personal + cc_red_group + confidence_less_energy + worry_cc + taxes_fossil
+
+
+lm_tune <- train(simpleModel, 
+                 data = training, 
+                 method = "lm", 
+                 preProc=c('scale', 'center'),
+                 trControl = ctrl)
+lm_tune
+
+# saving results 
+test_results$lm <- predict(lm_tune, testing)
+
+```
+ 
+Our linear regression model achieves an RMSE of 2.12, suggesting the average prediction error is moderate. The R-squared value of 0.35 indicates that the model explains around 36% of the variance in willingness to reduce emissions, pointing to a moderate predictive power.  
+
+Now we can compute `postResample()`, which shows how well the model predicts unseen data by comparing its predictions to actual outcomes on the test set.
+
+```{r RP ST lm results}
+postResample(pred = test_results$lm,  obs = test_results$original)
+```
+
+On the testing data, the model achieves an RMSE of 2.18 and an R^2^ of 0.35, meaning it explains about 35% of the variance in individual climate action. While the error is not excessive, the model’s limited predictive power suggests that it does not fully capture the complexity of behavioural drivers.
+
+```{r RP ST lm plot}
+ggplot(test_results, aes(x = lm, y = original)) +
+  geom_point() +
+  labs(title = "Linear Regression: Observed vs. Predicted", 
+       x = "Predicted", y = "Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "darkorchid1", linewidth = 1) +
+  theme_bw()
+
+```
+
+The scatter plot shows a positive relationship between predicted and observed values, but with considerable spread around the ideal diagonal line. This suggests that while the model captures general trends in climate action, prediction errors remain high, especially at extreme values.
+
+### Overfitted LM
+
+We now test a more complex linear regression model that includes squared terms for key predictors. These transformations aim to capture potential non-linear effects in attitudes and beliefs related to climate action, potentially improving predictive performance. As before, we apply cross-validation to evaluate the model.
+
+```{r  RP ST alm}
+complexModel <- cc_red_personal ~ country + cc_causes + balance_gov_personal + balance_gov_personal2 + cc_red_group + confidence_less_energy + confidence_less_energy2 + worry_cc + taxes_fossil
+
+alm_tune <- train(complexModel, 
+                  data = training, 
+                  method = "lm", 
+                  preProc=c('scale', 'center'),
+                  trControl = ctrl)
+alm_tune
+
+# saving results
+test_results$alm <- predict(alm_tune, testing)
+```
+
+Cross-validation shows a slight performance improvement, with an RMSE of 2.12 and R^2^ of 0.36. While better than the simpler model, the gain is minimal, suggesting limited benefit from added complexity.
+
+```{r RP ST alm results}
+postResample(pred = test_results$alm,  obs = test_results$original)
+```
+
+On the test data, the overfitted model achieves an RMSE of 2.18 and an R^2^ of 0.35, meaning it explains around 35% of the variance in individual climate action. The MAE of 1.72 indicates moderate average error, confirming that the added complexity offers no meaningful improvement in predictive accuracy over the simpler model.
+
+
+```{r RP ST alm plot}
+ggplot(test_results, aes(x = alm, y = original)) +
+  geom_point() +
+  labs(title = "Linear Regression: Observed vs. Predicted", 
+       x = "Predicted", y = "Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "deeppink1", linewidth = 1) +
+  theme_bw()
+
+```
+
+The plot remains identical. 
+
+### Ridge regression
+
+Ridge regression adds a penalty to large coefficients to reduce overfitting, especially useful when predictors are correlated as its shrinks the coefficients of less important predictors towards zero. We apply it to the same expanded model to see if it improves predictive performance.
+
+```{r RP ST ridge}
+ridge_grid <- expand.grid(lambda = seq(0, .1, length = 100))
+
+# we have to remove zero variance predictors for ridge!: none of cc_causes No CC made it into the training set! very unfortunate. 
+nzv <- caret::nearZeroVar(training, saveMetrics = TRUE)
+training_noVar <- training[, !nzv$zeroVar]
+testing_noVar <- testing[, colnames(training_noVar)] 
+
+
+# also delete cc_causes in model
+noVarModel <- cc_red_personal ~ country + balance_gov_personal + cc_red_group + confidence_less_energy + worry_cc + taxes_fossil
+
+ridge_tune <- train(noVarModel,
+                    data = training_noVar,
+                    method='ridge',
+                    preProc=c('scale','center'),
+                    tuneGrid = ridge_grid,
+                    trControl=ctrl)
+
+# saving results
+test_results$ridge <- predict(ridge_tune, testing_noVar)
+
+plot(ridge_tune)
+ridge_tune$bestTune
+
+```
+
+The Ridge regression tuning plot shows how prediction error (RMSE) varies with different levels of regularisation. The curve follows a U-shape, where performance initially improves as a small penalty is introduced, but then worsens as the regularisation becomes too strong. The lowest RMSE is achieved at a lambda value of 0.009, indicating that only a small amount of shrinkage is necessary. This suggests that multicollinearity is not a major issue and that most predictors contribute meaningfully to the model without needing aggressive penalisation.
+
+```{r RP ST ridge results}
+postResample(pred = test_results$ridge,  obs = test_results$original)
+
+```
+
+The Ridge regression model performs similarly to the previous linear models, with an R^2^ of 0.35, indicating that it explains 35% of the variance in support for personal climate action (´cc_red_personal`). The RMSE (2.17) and MAE (1.72) remain consistent with earlier results, suggesting that regularisation does not substantially improve predictive performance in this case.
+
+### Lasso regression
+
+We apply Lasso regression as a way to perform feature selection and prevent overfitting by adding an L1 penalty to the regression model. Unlike Ridge regression, which only shrinks coefficients, Lasso can set some coefficients to zero, effectively removing less important predictors from the model. 
+
+```{r RP ST lasso}
+lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
+
+lasso_tune <- train(noVarModel, # like ridge, with zero variance
+                    data = training_noVar, 
+                    method='lasso',
+                    preProc=c('scale','center'),
+                    tuneGrid = lasso_grid,
+                    trControl=ctrl)
+
+# saving results
+test_results$lasso <- predict(lasso_tune, testing_noVar)
+
+plot(lasso_tune)
+lasso_tune$bestTune
+```
+
+We observe that as the regularisation strength increases (moving right), the RMSE decreases sharply at first and then levels off, reaching a plateau. The best performance is achieved at a fraction of 0.79, which indicates that most predictors are retained with only moderate shrinkage.
+
+This means that strong penalisation (left side) leads to underfitting and poor predictive performance, while a fraction close to 1 strikes a good balance between reducing noise and retaining key variables. .
+
+```{r RP ST lasso results}
+postResample(pred = test_results$lasso,  obs = test_results$original)
+```
+
+The Lasso regression model achieves an RMSE of 2.17 and an R^2^ of 0.35 on the test set, matching the performance of previous models. While it applies stronger regularisation and potentially reduces less important predictors, it does not improve predictive accuracy compared to Ridge or standard linear regression.
+
+### Elastic Net
+
+We now apply Elastic Net regression, which combines both Ridge (L2) and Lasso (L1) penalties to handle multicollinearity and potentially remove irrelevant predictors in a single model.
+
+```{r RP ST eN}
+elastic_grid = expand.grid(alpha = seq(0, .2, 0.01), lambda = seq(0, .1, 0.01))
+
+glmnet_tune <- train(noVarModel,
+                     data = training_noVar,
+                     method='glmnet',
+                     preProc=c('scale','center'),
+                     tuneGrid = elastic_grid,
+                     trControl=ctrl)
+
+# saving results 
+test_results$glmnet <- predict(glmnet_tune, testing_noVar)
+
+plot(glmnet_tune)
+glmnet_tune$bestTune
+```
+
+The plot shows RMSE values across different combinations of mixing percentages (alpha) and regularisation strengths (lambda). The lowest RMSE is achieved at alpha = 0.2 and lambda = 0.04, suggesting that a modest amount of L1 (Lasso) regularisation, combined with L2 (Ridge), provides the best performance. As alpha increases beyond 0.2, performance worsens, indicating that heavier Lasso penalisation harms predictive accuracy in this case. Overall, the model benefits from a balanced approach, but leans slightly toward Ridge-like behaviour.
+
+```{r RP ST eN results}
+postResample(pred = test_results$glmnet,  obs = test_results$original)
+```
+
+The Elastic Net model achieves an RMSE of 2.17 and an R-squared of 0.35 on the test data, matching the performance of both Ridge and Lasso. This suggests that combining L1 and L2 penalties does not lead to a noticeable improvement in predictive accuracy for this task.
+
+### Forward regression
+
+We now apply forward selection using the leapForward method, which starts from an empty model and progressively adds variables that improve model performance the most at each step. This allows us to explore whether a simpler model with fewer predictors can achieve similar or better predictive accuracy than our earlier, more complex models.
+
+```{r RP ST forward reg train/test}
+for_tune <- train(noVarModel, 
+                  data = training_noVar, 
+                  method = "leapForward", 
+                  preProc=c('scale', 'center'),
+                  tuneGrid = expand.grid(nvmax = 4:10),
+                  trControl = ctrl)
+
+# saving results 
+test_results$frw <- predict(for_tune, testing)
+
+
+for_tune
+plot(for_tune)
+```
+
+The RMSE steadily declines as more predictors are added, indicating improved model performance with each step. The best results are obtained with 10 predictors[^2], where the model achieves an RMSE of 2.14 and explains around 34.5% of the variance in `cc_red_personal` (R^2^ = 0.345). However, the improvements across the last few steps are marginal, suggesting diminishing returns from adding more complexity.
+
+[^2]: Remember that while we have 9 variables, some of these variables are actually factors, so their dummy variables show up as individual features. 
+
+```{r RP ST forward reg coef}
+coef(for_tune$finalModel, for_tune$bestTune$nvmax)
+```
+
+As said, the final forward regression model selects 10 predictors, primarily composed of attitudinal factors and a subset of countries. The strongest effects come from `balance_gov_personal` (0.92) and `cc_red_group` (0.81), confirming that beliefs about responsibility, both governmental and collective, are central to personal commitment to climate action.
+
+`confidence_less_energy` also plays a role (0.25), indicating that people’s belief in their ability to reduce energy use predicts willingness to act.
+
+`country`-level differences remain modest but visible: for instance, Sweden (–0.18), Norway (–0.16), and Finland (–0.14) are associated with lower scores compared to the Spanish baseline, while Lithuania shows a small positive difference. Overall, the model reinforces prior findings while trimming down complexity.
+
+```{r RP ST forward reg results}
+postResample(pred = test_results$frw,  obs = test_results$original)
+```
+
+The forward regression model achieves an R^2^ of 0.34, indicating it explains around 34% of the variance in personal climate action. The RMSE of 2.19 and MAE of 1.74 suggest prediction errors are slightly larger than with regularised models. While the model remains interpretable and efficient, its predictive accuracy is more limited than the models before.
+
+```{r RP ST forward reg vis}
+ggplot(test_results, aes(x = frw, y = original)) +
+  geom_point() +
+  labs(title = "Forward Regression: Observed vs. Predicted", 
+       x = "Predicted", y = "Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "darkorange1", linewidth = 1) +
+  theme_bw()
+
+```
+
+The scatterplot shows a similar pattern to previous models: a general upward trend, but wide dispersion around the ideal line. This suggests the forward model captures the overall direction but struggles with precise predictions, especially at the extremes.
+
+### Stepwise regression
+
+To refine our regression model further, we use stepwise regression, which combines forward and backward selection to identify the best subset of predictors by adding or removing variables based on model fit.
+
+```{r RP ST step reg train/test}
+step_tune <- train(noVarModel, 
+                   data = training_noVar, 
+                   method = "leapSeq", 
+                   preProc=c('scale', 'center'),
+                   tuneGrid = expand.grid(nvmax = 4:10),
+                   trControl = ctrl)
+
+# saving results
+test_results$seq <- predict(step_tune, testing)
+
+step_tune
+plot(step_tune)
+```
+
+The stepwise regression shows a non-linear trend in performance. RMSE fluctuates with model complexity, peaking at 7 predictors before sharply improving at 8. The optimal model is found at 8 predictors, with the lowest RMSE (2.14) and highest R^2^ (0.34). 
+
+```{r RP ST step reg coef}
+coef(step_tune$finalModel, step_tune$bestTune$nvmax)
+```
+
+Hence, the final stepwise model includes 8 predictors, with `country` effects (e.g. Sweden, Finland, Norway, Estonia, Slovenia) all negatively associated with `cc_red_personal` compared to the baseline (Spain). Key attitudinal predictors remain: belief in government responsibility, group action, and confidence in reducing energy use all show positive relationships. This reaffirms the consistent relevance of these variables across models.
+
+```{r RP ST step reg results}
+postResample(pred = test_results$seq,  obs = test_results$original)
+```
+
+The stepwise regression model achieves an RMSE of 2.19 and an R^2^ of 0.34 on the test data, matching the performance of previous models. While the fit is moderate, it does not offer any clear improvement. 
+
+```{r RP ST step reg vis}
+ggplot(test_results, aes(x = seq, y = original)) +
+  geom_point() +
+  labs(title = "Stepwise Regression: Observed vs. Predicted", 
+       x = "Predicted", y = "Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "cyan1", linewidth = 1) +
+  theme_bw()
+```
+
+The stepwise regression scatter plot shows a similar pattern to previous models, indicating limited predictive precision.
+
+### Backward regression
+
+In the final step, we apply backward selection regression using the leapBackward method to identify the most relevant predictors by starting from a full model and progressively removing the least useful ones. We test models with 4 to 10 predictors using 5-fold cross-validation.
+
+```{r RP ST back reg train/test}
+back_tune <- train(noVarModel, 
+                   data = training_noVar, 
+                   method = "leapBackward", 
+                   preProc = c('scale', 'center'), 
+                   tuneGrid = expand.grid(nvmax = 4:10),
+                   trControl = ctrl)
+
+# saving results
+test_results$bw <- predict(back_tune, testing)
+
+print(back_tune)
+plot(back_tune)
+
+```
+
+The backward selection regression shows a steady decline in RMSE as more predictors are included, with the best performance at 10 predictors. Although improvements are modest, the lowest RMSE (2.30) and highest R^2^ (0.245) indicate this is the best-performing configuration. Overall, backward regression achieves slightly weaker predictive power than other models tested.
+
+```{r RP ST back reg coef}
+coef(back_tune$finalModel, back_tune$bestTune$nvmax)
+```
+
+We see that final backward model includes the 10 predictors, notably combining original and squared terms. `confidence_less_energy` stands out with both its linear and squared forms, suggesting a non-linear relationship. Other strong contributors include `balance_gov_personal` (squared), `worry_cc`, and several `country` effects. Compared to other models, the inclusion of squared terms distinguishes this one, but overall performance remains moderate.
+
+```{r RP ST back reg results}
+postResample(pred = test_results$bw, obs = test_results$original)
+```
+The backward regression model performs worse than the others, with an R^2^ of 0.245 and an RMSE of 2.34. This indicates it explains less variance in personal responsibility for climate change and has higher prediction error, despite using 10 predictors.
+
+```{r RP ST back reg vis}
+ggplot(test_results, aes(x = bw, y = original)) +
+  geom_point() +
+  labs(title = "Backward Regression: Observed vs. Predicted", 
+       x = "Predicted", y = "Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "olivedrab1", linewidth = 1) +
+  theme_bw()
+
+```
+
+The backward regression plot again resembles previous models, showing a weak fit. Predicted values tend to cluster toward the centre, and the model clearly overestimates high values: note how predictions extend beyond 10, the maximum of the observed scale.
+
+## ML methods
+
+In this section, we move away from common linear regression to explore machine learning techniques that may enhance our ability to predict individual willingness to reduce personal carbon emissions. While previous models included linear regression and various regularisation strategies, we now implement alternative algorithms that can capture more complex, non-linear relationships in the data. These approaches can better account for interactions and patterns that linear models may overlook, offering the potential to improve predictive performance. 
+
+### KNN
+
+We now apply the k-nearest neighbours algorithm, which predicts a value by averaging the outcomes of the k most similar observations. It can capture local patterns and nonlinearities missed by linear models, hence, we use the `simpleModel` we created without any squared terms. 
+
+We train the model with cross-validation and search for the optimal value of k to minimise prediction error. Initially, we are going to set the grid to a wider range of values in order to be able to better compare and narrow it down later. 
+
+```{r RP ML knn train wide}
+set.seed(123) 
+
+knn_tune <- train(noVarModel, 
+                  data = training_noVar,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(kmax = seq(5, 35, 2), distance=2, kernel='optimal'), 
+                  trControl = ctrl)
+
+plot(knn_tune)
+```
+
+We can see that RMSE decreases sharply between k = 5 and k = 25, then begins to stabilise. This suggests that the model benefits from increasing k up to a certain point, but further increases offer diminishing returns. Based on this, we narrow down our search grid to values between k = 23 and k = 33, where performance was most stable. This refined grid allows us to focus on the most promising range for optimal predictive accuracy.
+
+```{r RP ML knn trin narrow}
+set.seed(123) 
+
+knn_tune <- train(noVarModel, 
+                  data = training_noVar,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(kmax = seq(23, 33, 1), distance=2, kernel='optimal'), 
+                  trControl = ctrl)
+
+plot(knn_tune)
+
+```
+
+This second plot confirms our expectation: performance remains relatively stable across this interval, with only minor fluctuations in RMSE. The best performance seems to be achieved at k = 31, suggesting that a relatively high number of neighbours yields the most accurate predictions in our dataset. We now do a final run with k = 31 in the center. 
+
+```{r RP ML knn train final/test}
+knn_tune <- train(noVarModel, 
+                  data = training_noVar,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(
+                    kmax=c(29, 30, 31, 32, 33),
+                    distance=2, 
+                    kernel='optimal'), 
+                  trControl = ctrl)
+
+
+plot(knn_tune)
+
+# saving results 
+test_results$knn <- predict(knn_tune, testing_noVar)
+```
+
+This final zoomed-in plot allows us to more precisely identify the optimal value for k. While performance had stabilised across the 23–33 range, this close-up reveals a dip in RMSE values, with the minimum occurring at k = 30. This suggests that using 30 neighbours yields the best predictive accuracy. Beyond this point, RMSE slightly increases again, so including more neighbours offers no additional benefit and may introduce noise. 
+
+```{r RP ML knn results}
+postResample(pred = test_results$knn,  obs = test_results$original)
+```
+
+The final KNN model has an RMSE of 2.25, an R^2^ of 0.31, and a MAE of 1.81 on the test data. This indicates that the model explains around 31% of the variance in the outcome, which is worse than our best-performing regression models (at ca. 35%). While the prediction error is moderate, KNN does not appear to capture the underlying patterns as effectively in this context.
+
+### Random Forests
+
+We now turn to Random Forest, an ensemble method that combines multiple decision trees' averages to improve accuracy. 
+
+To fine-tune this model, we explore how different numbers of trees (ntree) affect prediction performance. We run a loop to train Random Forests with varying values of ntree, recording the resulting RMSE and R^2^ to identify the best-performing configuration.Since this loop is computationally intensive, it is set to eval = FALSE in the final version of the document. However, the results from one complete run are saved and shown in the table below.
+
+```{r RP ML rf loop, eval=F}
+ntree_values <- c(100, 250, 500, 750, 1000)
+rf_results <- data.frame(ntree = ntree_values, RMSE = NA, Rsquared = NA)
+
+# loop 
+for (i in seq_along(ntree_values)) {
+  set.seed(123)
+  rf_model <- train(
+    noVarModel,
+    data = training_noVar,
+    method = "rf",
+    trControl = ctrl,
+    tuneLength = 5,
+    ntree = ntree_values[i]
+  )
+  
+  rf_results$RMSE[i] <- min(rf_model$results$RMSE)
+  rf_results$Rsquared[i] <- max(rf_model$results$Rsquared)
+}
+```
+
+```{r RP ML rf loop results}
+rf_results <- data.frame(
+  ntree = c(100, 250, 500, 750, 1000),
+  RMSE = c(2.164855, 2.160305, 2.160730, 2.158191, 2.158018),
+  Rsquared = c(0.3399912, 0.3433136, 0.3437455, 0.3445126, 0.3443024)
+)
+
+rf_results
+```
+
+The results show a gradual improvement in RMSE and R² as ntree increases, with the lowest RMSE (2.1580) and highest R^2^ (0.3445) observed at ntree = 750. The gains beyond 250 trees are modest, indicating diminishing returns. Based on this, we select 500 trees as our final configuration, as it strikes a good balance between performance and computational cost.
+
+
+```{r RP ML rf train/test}
+rf_tune <- train(noVarModel, 
+                 data = training_noVar,
+                 method = "rf",
+                 preProc=c('scale','center'),
+                 trControl = ctrl,
+                 ntree = 500,
+                 tuneGrid = data.frame(mtry=c(1,3,5,7)),
+                 importance = TRUE)
+
+# saving results 
+test_results$rf <- predict(rf_tune, testing_noVar)
+
+plot(rf_tune)
+
+```
+
+The plot shows the effect of varying the number of randomly selected predictors (mtry) on the Random Forest model's RMSE. As mtry increases from 1 to 3, RMSE drops substantially, indicating that the model benefits from considering more predictors at each split. The lowest RMSE is achieved at mtry = 5, after which the performance begins to plateau or slightly worsen. This suggests that selecting 5 predictors at each split offers the best balance between randomness and performance in our model.
+
+```{r RP ML rf results}
+postResample(pred = test_results$rf,  obs = test_results$original)
+```
+The final Random Forest model achieves an RMSE of 2.22, an R-squared of 0.32, and a MAE of 1.76 on the test data. While it slightly outperforms simpler models in terms of RMSE, the improvement in predictive power (R^2^) is modest, suggesting the model captures more complexity but still struggles to fully explain the variance in individual responsibility for climate change.
+
+### Gradient Boosting
+
+We now apply Gradient Boosting, an ensemble method that builds trees sequentially, with each one improving on the errors of the last. 
+
+Since tuning this model is highly computationally expensive, we saved the full model results using saveRDS() and later reload them with readRDS() to inspect the tuning grid. This lets us visualise performance across boosting rounds without rerunning the model.
+
+```{r RP ML gb train broad, eval=F}
+xgb_tune <- train(noVarModel, 
+                  data = training_noVar,
+                  method = "xgbTree",
+                  preProc=c('scale','center'),
+                  objective="reg:squarederror",
+                  trControl = ctrl,
+                  tuneGrid = expand.grid(nrounds = c(100, 300, 500), 
+                                         max_depth = c(5,6,7), 
+                                         eta = c(0.01, 0.1, 1),
+                                         gamma = c(1, 2, 3),
+                                         colsample_bytree = c(1, 2),
+                                         min_child_weight = c(1),
+                                         subsample = c(0.2,0.5,0.8)))
+
+saveRDS(xgb_tune, file = "xgb_tune_broad.rds")
+```
+
+```{r RP ML gb train comparison}
+xgb_tune_broad <- readRDS("xgb_tune_broad.rds")
+
+xgb_tune_broad$results %>% 
+  dplyr::filter(gamma == 1, colsample_bytree == 1, subsample == 0.2) %>%   # filter for best parameters
+  ggplot(aes(x = nrounds, y = RMSE)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "RMSE vs Number of Boosting Rounds", x = "nrounds", y = "RMSE")
+```
+
+Based on the visual and numerical evaluation, we finalise the model using the best hyperparameter combination (nrounds = 300) in the following lightweight training. 
+
+```{r RP ML gb train narrow/test/results}
+xgb_tune <- train(noVarModel, 
+                  data = training_noVar,
+                  method = "xgbTree",
+                  preProc = c('scale', 'center'),
+                  objective = "reg:squarederror",
+                  trControl = ctrl,
+                  tuneGrid = expand.grid(nrounds = 300,
+                                         max_depth = 5,
+                                         eta = 0.01,
+                                         gamma = 1,
+                                         colsample_bytree = 1,
+                                         min_child_weight = 1,
+                                         subsample = 0.2
+                                         ))
+
+# saving results
+test_results$xgb <- predict(xgb_tune, testing_noVar)
+
+postResample(pred = test_results$xgb,  obs = test_results$original)
+```
+The Gradient Boosting model achieved an RMSE of 2.20, an R-squared of 0.338, and an MAE of 1.74. This places it above both KNN and Random Forest in terms of predictive accuracy, as it captures slightly more variance in the outcome. However, it still underperforms compared to Linear Regression, which achieved the highest R-squared (0.35) in our evaluation.
+
+While XGBoost performed well, I was unable to explore a broader set of hyperparameter combinations due to computational constraints affecting time constraints. It is possible that a wider search would yield better results, but given the trade-off between time and marginal gains, simpler models like LM remained competitive in our setting.
+
+### Neural Networks
+
+We now apply a Neural Network model, a flexible non-linear approach capable of capturing complex patterns through layered transformations of the input data. 
+
+To identify the most effective neural network configuration, we test several combinations of hidden layer size and weight decay parameters.
+
+```{r RP ML NN train}
+nn_tune <- train(noVarModel, 
+                 data = training_noVar,
+                 method = "nnet",
+                 preProc=c('scale','center'),
+                 trControl = ctrl,
+                 tuneGrid = expand.grid(
+                   size = c(3, 5, 7, 10),
+                   decay = c(0, 0.001, 0.01, 0.1)), 
+                 linout = TRUE)
+
+# saving results
+test_results$nn <- predict(nn_tune, testing_noVar)
+
+plot(nn_tune)
+nn_tune$bestTune
+
+```
+
+The plot shows that the best neural network performance is achieved with 3 hidden units and a weight decay of 0.1, which minimises RMSE. This means that a small network with moderate regularisation produced the lowest prediction error.
+
+```{r RP ML NN results}
+postResample(pred = test_results$nn,  obs = test_results$original)
+```
+
+The neural network model achieved an RMSE of 2.21 and an MAE of 1.75, indicating moderate prediction error. Its R-squared value of 0.33 shows it explains around 33% of the variance in the outcome. While comparable to other machine learning models, it does not outperform most of the statistically engineered multiple regressions. 
+
+## Comparing ML models 
+
+Now we are going to compare our machine learning models in terms of how they prioritise different predictors. By examining variable importance across models, we gain insight into which features consistently drive predictions and how different algorithms interpret the underlying data structure.
+
+### Variable Importance
+
+Below we have variable importance plots for our four models: rf, gb and nn models (knn does not produce variable importance like the other models, and hence cant be visualised) 
+
+```{r RP ML comp varImp}
+par(mfrow = c(2, 2))
+
+plot(varImp(rf_tune, scale = F), scales = list(y = list(cex = .95)), main = "Random Forest")
+plot(varImp(xgb_tune, scale = F), scales = list(y = list(cex = .95)), main = "Gradient Boosting")
+plot(varImp(nn_tune, scale = F), scales = list(y = list(cex = .95)), main = "Neural Networks")
+
+varImp(rf_tune, scale = F)$importance |>
+  tibble::rownames_to_column("variable") |>
+  dplyr::arrange(desc(Overall)) |>
+  dplyr::slice_head(n = 5)
+
+varImp(xgb_tune, scale = F)$importance |>
+  tibble::rownames_to_column("variable") |>
+  dplyr::arrange(desc(Overall)) |>
+  dplyr::slice_head(n = 5)
+
+varImp(nn_tune, scale = F)$importance |>
+  tibble::rownames_to_column("variable") |>
+  dplyr::arrange(desc(Overall)) |>
+  dplyr::slice_head(n = 5)
+
+
+par(mfrow = c(1, 1))
+```
+Across all three models we observe some consistency in the variables identified as most predictive, but also notable differences in emphasis. The variable `balance_gov_personal`, which reflects individuals’ perceived balance between government and personal responsibility, consistently ranks highest in both Random Forest and Gradient Boosting. `cc_red_group` (willingness to reduce emissions as a group) and `confidence_less_energy` also appear prominently in both, suggesting a strong behavioural and attitudinal dimension to prediction.
+
+In contrast, the Neural Network model prioritises `country`-level variables like countryCzechia and countryNetherlands alongside `cc_red_group` and `balance_gov_personal`, possibly indicating that non-linear interactions with country-fixed effects were more influential in this architecture.
+
+Overall, while `balance_gov_personal` and `cc_red_group` emerge as robust predictors across models, the relative importance of other features (especially `country` variables) varies depending on the model structure. This suggests that different algorithms may be capturing complementary patterns in the data.
+
+
+### Partial dependence
+
+To further explore how key predictors relate to the outcome, we generate partial dependence plots for `balance_gov_personal` and `worry_cc`, as it they appear among the top predictors across all three models. The partial dependence plots helps us compare whether their effects are interpreted similarly or vary across model types.
+
+```{r RP ML comp pdp 1}
+par(mfrow = c(1, 3))  # 1 row, 3 plots
+
+partial(rf_tune, pred.var = "balance_gov_personal", plot = TRUE, rug = TRUE)
+partial(xgb_tune, pred.var = "balance_gov_personal", plot = TRUE, rug = TRUE)
+partial(nn_tune, pred.var = "balance_gov_personal", plot = TRUE, rug = TRUE)
+
+```
+
+Comparing the three plots we see: 
+
+- In the Random Forest model, `balance_gov_personal` shows a clear positive effect: higher balance scores lead to steadily higher predicted support for climate action. While the line is obviouly non-linear, it does follow a rather straight trend upwards. 
+- The XGBoost model also shows a positive association between `balance_gov_personal` and support, though with a slightly sharper increase between scores of 60 and 80, then flattening at the top.
+- The neural network shows the strongest linear relationship, with a smooth and steep rise in predicted support as `balance_gov_personal` increases, suggesting it interprets the variable’s influence as highly consistent across the scale.
+
+All in all, all three models agree on a strong positive association between `balance_gov_personal` and support for climate action. They differ in how they capture the relationship’s shape: ranging from linear (neural networks), to mildly non-linear (Random Forest), to more complex with thresholds (XGBoost). This highlights how model architecture can influence the interpretation of variable effects.
+
+Now we take a look at `worry_cc`. 
+
+```{r RP ML comp pcp 2}
+par(mfrow = c(1, 3))  # 1 row, 3 plots
+
+partial(rf_tune, pred.var = "worry_cc", plot = TRUE, rug = TRUE)
+partial(xgb_tune, pred.var = "worry_cc", plot = TRUE, rug = TRUE)
+partial(nn_tune, pred.var = "worry_cc", plot = TRUE, rug = TRUE)
+
+par(mfrow = c(1, 1))
+```
+
+For `worry_cc` we can appreciate the following: 
+
+- In the Random Forest model, `worry_cc` shows a non-linear effect. Predicted support rises notably from levels 2 to 4 but then declines at level 5. This suggests the model identifies a tipping point, after which additional worry does not translate into higher support, and may even slightly reduce it.
+- In the XGBoost model, `worry_cc` also shows a non-linear relationship with predicted support for climate action. Support increases from levels 1 to 4, peaking at 4, but then unexpectedly drops at level 5. This suggests again that the model captures a threshold effect, where very high levels of worry might not further increase support or could reflect a different respondent profile.
+- In the neural network model, `worry_cc` shows a clear linear effect: as worry about climate change increases, predicted support for action steadily rises. Unlike the tree-based models, there is no dip at the highest level, suggesting the model treats greater concern as uniformly predictive of higher support.
+
+Overall, while all three models identify a positive association between worry about climate change and support for action, their interpretations differ. The Random Forest and XGBoost models suggest a non-linear, threshold-like effect, where support peaks and then slightly declines at the highest worry level. In contrast, the neural network captures a consistent, linear increase in support, implying a more straightforward relationship between concern and willingness to act.
+
+
+## Comparing predictions
+
+In this final section, we evaluate how well our different models perform by directly comparing their prediction outputs. Beyond standard metrics like RMSE and R-squared, we focus on mean absolute error (MAE) to assess accuracy in intuitive terms. We then build an ensemble model that averages the predictions of the top-performing approaches, aiming to boost performance through model combination. Finally, we explore prediction intervals using a simple conformal prediction framework to visualise model uncertainty and identify observations where predictions diverge from reality. This comprehensive comparison helps us understand not only which model predicts best but also where and why they might fail.
+
+### MAE 
+
+We start by comparing models using the MAE. 
+
+```{r RP ML comp MAE}
+apply(test_results[-1], 2, function(x) mean(abs(x - test_results$original)))
+```
+
+The MAE results show that the linear and regularised models (LM, ALM, Ridge, Lasso, and GLMNet) perform best, with the lowest average errors around 1.72. Among them, Forward Regression (1.74) and Stepwise (1.74) follow closely.
+Machine learning models perform slightly worse: Random Forest (1.76), XGBoost (1.74), and Neural Networks (1.75) all show higher errors. KNN performs the worst among them, with an MAE of 1.81, and Backward Regression performs the worst overall (1.90).
+
+This suggests that statistically engineered regression models outperform machine learning models in terms of predictive accuracy on this task.
+
+### ML Model combination: Ensemble 
+
+To boost predictive performance, we combine the strengths of our 3 top machine learning models by creating an ensemble through simple averaging.
+
+```{r RP ML comp ensemble}
+test_results$comb = (test_results$rf + test_results$xgb + test_results$nn)/3 #in this case we consider the top 3
+
+postResample(pred = test_results$comb,  obs = test_results$original)
+```
+
+The ensemble model, combining Random Forest, XGBoost, and Neural Networks, achieved an RMSE of 2.19, an MAE of 1.73, and an R^2^ of 0.35, which is our best R^2^ so far for the ML models. However, while its overall performance is strong, the MAE remains slightly higher than that of some linear and regularised models like the basic linear regression (MAE = 1.72), suggesting they still offer competitive precision in absolute error terms. Also, thr precise R^2^ (0.346) does not beat the best global R^2^, which is 0.351 by the Ridge, Lasso and ElasticNet models. 
+
+```{r}
+yhat = test_results$comb
+head(yhat) 
+hist(yhat, col="lightblue") 
+```
+
+The histogram of the ensemble predictions (yhat) shows a roughly symmetric, bell-shaped distribution centered around values 4–5. This suggests the model consistently predicts moderate levels of support, with few extreme values on either end. It indicates stable and reasonable output, but could also imply limited sensitivity to very high or very low responses.
+
+### Prediction Intervals
+
+To assess the reliability of our predictions, we construct prediction intervals to quantify the uncertainty around each predicted value.
+
+```{r}
+y = test_results$original
+error = y-yhat
+hist(error, col="lightblue")
+```
+
+The error distribution is centred around zero and appears roughly normal, indicating that the ensemble model does not systematically over- or under-predict, with most errors being small and a few larger deviations on either side.
+
+To construct prediction intervals, we followed the conformal prediction approach provided in class, using the first 100 residuals as a reference for estimating uncertainty. However, the original implementation applied the 5th and 95th quantiles of raw residuals directly, which led to overly wide or inaccurate intervals. To improve reliability, we adjusted the method by applying symmetric quantiles of absolute residuals instead. This preserves the spirit of conformal prediction while ensuring the intervals better reflect typical prediction error. The adjustment avoids overfitting to early residual noise and yields more interpretable, balanced intervals.
+
+```{r}
+noise = error[1:100] 
+
+# elasticnet
+yhat = test_results$glmnet
+
+lwr <- yhat[101:length(yhat)] - quantile(abs(noise), 0.95, na.rm = T)
+upr <- yhat[101:length(yhat)] + quantile(abs(noise), 0.95, na.rm = T)
+
+predictions = data.frame(real=y[101:length(y)],
+                         fit=yhat[101:length(yhat)], 
+                         lwr=lwr, upr=upr)
+
+predictions = predictions %>% mutate(out=factor(if_else(real<lwr | real>upr,1,0)))
+
+cat("ElasticNet:", mean(predictions$out==1), "\n\n")
+
+# ensemble
+yhat = test_results$comb
+
+lwr <- yhat[101:length(yhat)] - quantile(abs(noise), 0.95, na.rm = T)
+upr <- yhat[101:length(yhat)] + quantile(abs(noise), 0.95, na.rm = T)
+
+predictions = data.frame(real=y[101:length(y)],
+                         fit=yhat[101:length(yhat)], 
+                         lwr=lwr, upr=upr)
+
+predictions = predictions %>% mutate(out=factor(if_else(real<lwr | real>upr,1,0)))
+
+cat("Ensemble:", mean(predictions$out==1), "\n")
+```
+Using symmetric prediction intervals based on the 95th percentile of the absolute residuals from the first 100 observations, we find that only 3.7% of test observations fall outside the predicted bounds. This suggests that the constructed intervals successfully capture the uncertainty of the model’s predictions.
+
+In comparison, when applying the same prediction interval logic to the glmnet model, 4.1% of observations fall outside the interval, slightly higher than the 3.7% seen with the ensemble. This indicates that while both models produce reasonably calibrated intervals, the ensemble provides slightly more reliable coverage of the true values.
+
+All in all the prediction intervals appear slightly conservative, capturing more than the intended 90% of true values. This could be due to underestimation of error variability in the calibration subset or a generally well-calibrated ensemble model.
+
+```{r}
+ggplot(predictions, aes(x=fit, y=real))+
+  geom_point(aes(color=out)) + theme(legend.position="none") +
+  geom_ribbon(data=predictions,aes(ymin=lwr,ymax=upr),alpha=0.3) +
+  labs(title = "Prediction intervals for Ensemble", x = "prediction",y="real price")
+```
+
+
+The plot shows the prediction intervals around the ensemble model’s estimates. Most observed values (in red) fall within the shaded confidence band, confirming good coverage. Outliers (in blue) lie outside the interval and suggest cases where the model under- or overestimates support more substantially. These could point to unmodelled factors or areas where the model is less reliable.
+
+
+## Conclusions: Regression
+
+```{r}
+apply(test_results[-1], 2, function(x) {
+  cor(x, test_results$original, use = "complete.obs")^2
+}) %>% 
+  enframe(name = "model", value = "R_squared") %>% 
+  arrange(desc(R_squared))
+
+```
+
+
+As you can see in the table, among all regression models tested, the elastic net achieved the best overall performance with an R^2^ of 0.3511, outperforming both simpler linear regressions and more complex machine learning models. This suggests that regularisation techniques effectively balance bias and variance in this prediction task.
+
+The ensemble model, which averaged predictions from Random Forest, XGBoost, and Neural Networks, came close (R^2^ = 0.3458), showing that combining different algorithmic perspectives can yield strong, robust predictions even if it does not always outperform the best individual model.
+
+Despite tuning and ensemble strategies, model performance plateaued around 35% of explained variance. This indicates that the dataset may not contain enough signal to fully capture the outcome variable. Nonetheless, the modelling process shed light on variables that consistently mattered, such as `balance_gov_personal`, `cc_red_group`, and `worry_cc` and illustrated how different algorithms interpret these patterns.
+
+# Conclusion 
+
+This project explored two predictive tasks to better understand individual perceptions and attitudes regarding climate change. 
+
+In the classification task, we aimed to predict belief in human-caused climate change. While no model achieved perfect accuracy, the best-performing ones highlighted the importance of attitudinal and sociodemographic variables, achieving modest predictive success.
+
+In the regression task, we predicted individuals’ perceived personal responsibility in tackling climate change (through saving energy). The best performing approach in terms of R^2^ was the Elastic Net model (R^2^ ≈ 0.351), closely followed by ridge and lasso regressions. Interestingly, the ensemble of tree-based and neural models performed well but did not surpass the simpler regularised regressions. Across both tasks, `balance_gov_personal`, `cc_red_group`, `worry_cc`, and `confidence_less_energy` emerged as consistently predictive variables.
+
+A particularly notable finding was the predictive power of `country` itself. In several models, national origin acted as a standalone predictor for climate beliefs and perceived responsibility, underscoring the weight of social and political context in shaping environmental attitudes.
+
+Finally, it is important to acknowledge that all variables represent survey responses: they reflect how participants choose to portray themselves, rather than objective truths. This self-reported nature introduces an interpretive layer: people may express what they _believe_ they should think or do, rather than what they truly feel or act upon. As such, our findings offer, instead of objective truths about climate action trends, rather insight into _public narratives and self-perceptions about climate change_.
+
